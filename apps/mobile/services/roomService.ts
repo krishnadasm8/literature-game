@@ -37,3 +37,11 @@ export const startGame = async (roomCode: string): Promise<RoomResponse> => {
   const response = await api.post<RoomResponse>(`/rooms/${roomCode}/start`);
   return response.data;
 };
+
+export const switchTeam = async (
+  roomCode: string,
+  team: "TEAM_A" | "TEAM_B",
+): Promise<RoomResponse> => {
+  const response = await api.patch<RoomResponse>(`/rooms/${roomCode}/team`, { team });
+  return response.data;
+};

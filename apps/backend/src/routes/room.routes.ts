@@ -261,6 +261,64 @@ router.post("/:code/ready", authMiddleware, async (req: AuthenticatedRequest, re
   }
 });
 
+router.patch("/:code/team", authMiddleware, async (req: AuthenticatedRequest, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const roomCode = String(req.params.code).toUpperCase();
+    const requestedTeam = String(req.body?.team ?? "").toUpperCase();
+    if (requestedTeam !== "TEAM_A" && requestedTeam !== "TEAM_B") {
+      res.status(400).json({ error: "team must be TEAM_A or TEAM_B." });
+      return;
+    }
+
+    const room = await getRoomByCode(roomCode);
+    if (!room) {
+      res.status(404).json({ error: "Room not found." });
+      return;
+    }
+
+    if (room.status !== "WAITING") {
+      res.status(400).json({ error: "Teams can only be changed while room is waiting." });
+      return;
+    }
+
+    const roomPlayer = room.players.find((player) => player.userId === userId);
+    if (!roomPlayer) {
+      res.status(404).json({ error: "Player not in room." });
+      return;
+    }
+
+    const nextTeam = requestedTeam as Team;
+    if (roomPlayer.team !== nextTeam) {
+      await prisma.roomPlayer.update({
+        where: { id: roomPlayer.id },
+        data: { team: nextTeam },
+      });
+    }
+
+    const updatedRoom = await getRoomByCode(roomCode);
+    if (!updatedRoom) {
+      res.status(500).json({ error: "Failed to refresh room." });
+      return;
+    }
+
+    emitToRoomNamespace(roomCode, "room:team_changed", {
+      roomCode,
+      playerId: userId,
+      team: nextTeam,
+    });
+
+    res.status(200).json({ room: toPublicRoom(updatedRoom) });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : "Failed to switch team." });
+  }
+});
+
 router.post("/:code/start", authMiddleware, async (req: AuthenticatedRequest, res) => {
   try {
     const userId = req.user?.id;
