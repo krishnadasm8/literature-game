@@ -3,10 +3,13 @@ import {
   Alert,
   Modal,
   Pressable,
+  SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   ToastAndroid,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
@@ -23,6 +26,8 @@ interface RoomApiResponse {
 
 export default function LobbyScreen(): JSX.Element {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isSmallScreen = width < 390;
   const accessToken = useAuthStore((state) => state.accessToken);
   const [maxPlayers, setMaxPlayers] = useState<4 | 6 | 8>(6);
   const [roomCode, setRoomCode] = useState("");
@@ -85,54 +90,59 @@ export default function LobbyScreen(): JSX.Element {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Lobby</Text>
+    <SafeAreaView style={styles.container}>
+      <ScrollView
+        contentContainerStyle={[styles.contentContainer, isSmallScreen && styles.contentContainerSmall]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.title}>Lobby</Text>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Create Room</Text>
-        <View style={styles.segmentRow}>
-          {[4, 6, 8].map((count) => (
-            <Pressable
-              key={count}
-              style={[
-                styles.segment,
-                maxPlayers === count ? styles.segmentActive : null,
-              ]}
-              onPress={() => setMaxPlayers(count as 4 | 6 | 8)}
-            >
-              <Text style={styles.segmentText}>{count}</Text>
-            </Pressable>
-          ))}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Create Room</Text>
+          <View style={styles.segmentRow}>
+            {[4, 6, 8].map((count) => (
+              <Pressable
+                key={count}
+                style={[
+                  styles.segment,
+                  maxPlayers === count ? styles.segmentActive : null,
+                ]}
+                onPress={() => setMaxPlayers(count as 4 | 6 | 8)}
+              >
+                <Text style={styles.segmentText}>{count}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Pressable
+            style={[styles.primaryButton, loadingCreate && styles.disabled]}
+            disabled={loadingCreate}
+            onPress={() => void onCreate()}
+          >
+            <Text style={styles.primaryButtonText}>{loadingCreate ? "Creating..." : "Create"}</Text>
+          </Pressable>
         </View>
-        <Pressable
-          style={[styles.primaryButton, loadingCreate && styles.disabled]}
-          disabled={loadingCreate}
-          onPress={() => void onCreate()}
-        >
-          <Text style={styles.primaryButtonText}>{loadingCreate ? "Creating..." : "Create"}</Text>
-        </Pressable>
-      </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Join Room</Text>
-        <TextInput
-          style={styles.input}
-          value={roomCode}
-          autoCapitalize="characters"
-          maxLength={6}
-          placeholder="ABC123"
-          onChangeText={(value) => setRoomCode(value.toUpperCase())}
-        />
-        <Pressable
-          style={[styles.primaryButton, (!canJoin || loadingJoin) && styles.disabled]}
-          disabled={!canJoin || loadingJoin}
-          onPress={() => void onJoin()}
-        >
-          <Text style={styles.primaryButtonText}>{loadingJoin ? "Joining..." : "Join"}</Text>
-        </Pressable>
-      </View>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Join Room</Text>
+          <TextInput
+            style={styles.input}
+            value={roomCode}
+            autoCapitalize="characters"
+            maxLength={6}
+            placeholder="ABC123"
+            onChangeText={(value) => setRoomCode(value.toUpperCase())}
+          />
+          <Pressable
+            style={[styles.primaryButton, (!canJoin || loadingJoin) && styles.disabled]}
+            disabled={!canJoin || loadingJoin}
+            onPress={() => void onJoin()}
+          >
+            <Text style={styles.primaryButtonText}>{loadingJoin ? "Joining..." : "Join"}</Text>
+          </Pressable>
+        </View>
 
-      {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+        {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+      </ScrollView>
 
       <Modal
         visible={showCreateModal}
@@ -159,16 +169,23 @@ export default function LobbyScreen(): JSX.Element {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#f8fafc",
+  },
+  contentContainer: {
     gap: 14,
     padding: 24,
-    backgroundColor: "#f8fafc",
+    paddingBottom: 28,
+  },
+  contentContainerSmall: {
+    paddingHorizontal: 14,
+    gap: 10,
   },
   title: {
     fontSize: 24,
@@ -189,6 +206,7 @@ const styles = StyleSheet.create({
   segmentRow: {
     flexDirection: "row",
     gap: 8,
+    flexWrap: "wrap",
   },
   segment: {
     borderWidth: 1,

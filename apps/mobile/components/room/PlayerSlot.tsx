@@ -45,10 +45,12 @@ export function PlayerSlot({
 
 const styles = StyleSheet.create({
   container: {
-    padding: 12,
+    padding: 10,
     borderRadius: 10,
     borderWidth: 1,
-    minWidth: 92,
+    minWidth: 0,
+    maxWidth: "100%",
+    flexShrink: 1,
     gap: 8,
   },
   teamA: {
@@ -62,6 +64,7 @@ const styles = StyleSheet.create({
   name: {
     fontWeight: "700",
     color: "#111827",
+    flexShrink: 1,
   },
   identityRow: {
     flexDirection: "row",

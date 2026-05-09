@@ -5,8 +5,10 @@ import {
   Alert,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import Animated, {
@@ -46,6 +48,8 @@ interface IncomingAsk {
 export default function GameCodeScreen(): JSX.Element {
   const { code } = useLocalSearchParams<{ code: string }>();
   const user = useAuthStore((state) => state.user);
+  const { width } = useWindowDimensions();
+  const isSmallScreen = width < 390;
   const gameState = useGameStore((state) => state.gameState);
   const myHand = useGameStore((state) => state.myHand);
   const [selectedOpponentId, setSelectedOpponentId] = useState<string | null>(null);
@@ -205,61 +209,66 @@ export default function GameCodeScreen(): JSX.Element {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScoreBoard teamAScore={teamAScore} teamBScore={teamBScore} round={gameState.round} />
+      <ScrollView
+        contentContainerStyle={[styles.contentContainer, isSmallScreen && styles.contentContainerSmall]}
+        showsVerticalScrollIndicator={false}
+      >
+        <ScoreBoard teamAScore={teamAScore} teamBScore={teamBScore} round={gameState.round} />
 
-      <View style={styles.opponentArea}>
-        {opponents.map((player) => (
-          <PlayerSlot
-            key={player.id}
-            player={player as Player}
-            selected={selectedOpponentId === player.id}
-            pressable={isMyTurn && player.team !== myPlayer?.team && Boolean(selectedAskCard)}
+        <View style={[styles.opponentArea, isSmallScreen && styles.opponentAreaSmall]}>
+          {opponents.map((player) => (
+            <View key={player.id} style={styles.opponentSlotWrap}>
+              <PlayerSlot
+                player={player as Player}
+                selected={selectedOpponentId === player.id}
+                pressable={isMyTurn && player.team !== myPlayer?.team && Boolean(selectedAskCard)}
+                onPress={() => {
+                  if (!isMyTurn || player.team === myPlayer?.team || !selectedAskCard) {
+                    return;
+                  }
+                  setSelectedOpponentId(player.id);
+                }}
+              />
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.centerArea}>
+          <Text style={styles.centerTitle}>Latest Action</Text>
+          <Text style={styles.centerAction}>{centerAction}</Text>
+        </View>
+        {notificationText ? <Text style={styles.notice}>{notificationText}</Text> : null}
+
+        <TurnIndicator isMyTurn={isMyTurn} currentPlayerName={currentTurnName} />
+        <ActionLog moves={moveHistory} />
+
+        <View style={styles.controls}>
+          <Pressable
+            style={[
+              styles.declareButton,
+              (!isMyTurn || submitting || !selectedAskCard || !selectedOpponentId) && styles.disabledButton,
+            ]}
+            disabled={!isMyTurn || submitting || !selectedAskCard || !selectedOpponentId}
             onPress={() => {
-              if (!isMyTurn || player.team === myPlayer?.team || !selectedAskCard) {
-                return;
-              }
-              setSelectedOpponentId(player.id);
+              void submitAsk();
             }}
-          />
-        ))}
-      </View>
+          >
+            <Text style={styles.declareButtonText}>{submitting ? "Asking..." : "Ask"}</Text>
+          </Pressable>
+        </View>
 
-      <View style={styles.centerArea}>
-        <Text style={styles.centerTitle}>Latest Action</Text>
-        <Text style={styles.centerAction}>{centerAction}</Text>
-      </View>
-      {notificationText ? <Text style={styles.notice}>{notificationText}</Text> : null}
-
-      <TurnIndicator isMyTurn={isMyTurn} currentPlayerName={currentTurnName} />
-      <ActionLog moves={moveHistory} />
-
-      <View style={styles.controls}>
-        <Pressable
-          style={[
-            styles.declareButton,
-            (!isMyTurn || submitting || !selectedAskCard || !selectedOpponentId) && styles.disabledButton,
-          ]}
-          disabled={!isMyTurn || submitting || !selectedAskCard || !selectedOpponentId}
-          onPress={() => {
-            void submitAsk();
+        <HandView
+          hand={myHand}
+          playableCards={playableCards}
+          onCardSelect={(card) => {
+            if (selectedOpponentId) {
+              setSelectedAskCard(card);
+              setSelectedHalfSuit(card.halfSuit);
+            }
           }}
-        >
-          <Text style={styles.declareButtonText}>{submitting ? "Asking..." : "Ask"}</Text>
-        </Pressable>
-      </View>
+        />
 
-      <HandView
-        hand={myHand}
-        playableCards={playableCards}
-        onCardSelect={(card) => {
-          if (selectedOpponentId) {
-            setSelectedAskCard(card);
-            setSelectedHalfSuit(card.halfSuit);
-          }
-        }}
-      />
-
-      <Animated.View style={[styles.askPanel, askSheetStyle]}>
+        <Animated.View style={[styles.askPanel, askSheetStyle]}>
         <Text style={styles.sheetTitle}>Ask Opponent</Text>
         <Text style={styles.sheetSubtitle}>
           1) Pick half-suit  2) Pick card  3) Pick opposite player
@@ -308,27 +317,28 @@ export default function GameCodeScreen(): JSX.Element {
             <Text style={styles.sheetCancelText}>Cancel</Text>
           </Pressable>
         </View>
-      </Animated.View>
+        </Animated.View>
 
-      {incomingAsk ? (
-        <View style={styles.responsePanel}>
-          <Text style={styles.sheetTitle}>Incoming Ask</Text>
-          <Text style={styles.sheetSubtitle}>
-            {incomingAsk.askingPlayerName} asks for {incomingAsk.card.rank} of {incomingAsk.card.suit}
-          </Text>
-          <Pressable
-            style={[styles.responseButton, respondingAsk && styles.disabledButton]}
-            disabled={respondingAsk}
-            onPress={() => {
-              void respondIncomingAsk();
-            }}
-          >
-            <Text style={styles.responseButtonText}>
-              {respondingAsk ? "Sending..." : incomingAsk.targetHasCard ? "Give" : "No"}
+        {incomingAsk ? (
+          <View style={styles.responsePanel}>
+            <Text style={styles.sheetTitle}>Incoming Ask</Text>
+            <Text style={styles.sheetSubtitle}>
+              {incomingAsk.askingPlayerName} asks for {incomingAsk.card.rank} of {incomingAsk.card.suit}
             </Text>
-          </Pressable>
-        </View>
-      ) : null}
+            <Pressable
+              style={[styles.responseButton, respondingAsk && styles.disabledButton]}
+              disabled={respondingAsk}
+              onPress={() => {
+                void respondIncomingAsk();
+              }}
+            >
+              <Text style={styles.responseButtonText}>
+                {respondingAsk ? "Sending..." : incomingAsk.targetHasCard ? "Give" : "No"}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -336,9 +346,16 @@ export default function GameCodeScreen(): JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#f3f4f6",
+  },
+  contentContainer: {
     padding: 12,
     gap: 10,
-    backgroundColor: "#f3f4f6",
+    paddingBottom: 24,
+  },
+  contentContainerSmall: {
+    paddingHorizontal: 10,
+    gap: 8,
   },
   loadingContainer: {
     flex: 1,
@@ -353,7 +370,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    justifyContent: "center",
+    justifyContent: "space-between",
+  },
+  opponentAreaSmall: {
+    gap: 6,
+  },
+  opponentSlotWrap: {
+    width: "48%",
   },
   centerArea: {
     padding: 12,
@@ -380,8 +403,10 @@ const styles = StyleSheet.create({
   declareButton: {
     backgroundColor: "#111827",
     borderRadius: 8,
-    paddingHorizontal: 14,
+    paddingHorizontal: 18,
     paddingVertical: 10,
+    minWidth: 120,
+    alignItems: "center",
   },
   declareButtonText: {
     color: "#ffffff",
@@ -391,10 +416,6 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   askPanel: {
-    position: "absolute",
-    left: 12,
-    right: 12,
-    bottom: 110,
     backgroundColor: "#ffffff",
     borderRadius: 12,
     padding: 12,
@@ -467,10 +488,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   responsePanel: {
-    position: "absolute",
-    left: 12,
-    right: 12,
-    bottom: 250,
     backgroundColor: "#ffffff",
     borderRadius: 12,
     padding: 12,

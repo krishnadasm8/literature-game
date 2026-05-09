@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { FlatList, StyleSheet, View } from "react-native";
+import { FlatList, StyleSheet, View, useWindowDimensions } from "react-native";
 
 import type { Card } from "@shared/src";
 
@@ -16,7 +16,9 @@ const MAX_NON_SCROLLABLE = 8;
 const cardCode = (card: Card): string => `${card.rank}-${card.suit}`;
 
 export function HandView({ hand, playableCards, onCardSelect }: HandViewProps): JSX.Element {
+  const { width } = useWindowDimensions();
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
+  const overlap = width < 390 ? -28 : -22;
 
   const playableSet = useMemo(() => {
     return new Set(playableCards.map((card) => cardCode(card)));
@@ -39,7 +41,7 @@ export function HandView({ hand, playableCards, onCardSelect }: HandViewProps): 
         style={[
           styles.cardWrap,
           {
-            marginLeft: index === 0 ? 0 : -22,
+            marginLeft: index === 0 ? 0 : overlap,
             transform: [{ rotate: rotationForIndex(index, total) }],
           },
         ]}
@@ -67,7 +69,7 @@ export function HandView({ hand, playableCards, onCardSelect }: HandViewProps): 
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContainer}
         renderItem={({ item, index }) => (
-          <View style={[styles.cardWrap, { marginLeft: index === 0 ? 0 : -20 }]}>
+          <View style={[styles.cardWrap, { marginLeft: index === 0 ? 0 : width < 390 ? -26 : -20 }]}>
             <CardView
               card={item}
               faceUp

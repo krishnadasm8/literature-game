@@ -10,6 +10,7 @@ import {
   Share,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 
@@ -24,6 +25,8 @@ import { useRoomStore } from "../../store/roomStore";
 
 export default function RoomCodeScreen(): JSX.Element {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isSmallScreen = width < 390;
   const { code } = useLocalSearchParams<{ code: string }>();
   const normalizedCode = (code ?? "").toUpperCase();
   const user = useAuthStore((state) => state.user);
@@ -190,7 +193,7 @@ export default function RoomCodeScreen(): JSX.Element {
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>Room Lobby</Text>
-      <View style={styles.codeRow}>
+      <View style={[styles.codeRow, isSmallScreen && styles.codeRowSmall]}>
         <Text style={styles.subtitle}>Room code: {normalizedCode || "-"}</Text>
         <Pressable style={styles.codeButton} onPress={() => void onCopyCode()}>
           <Text style={styles.codeButtonText}>Copy</Text>
@@ -200,9 +203,11 @@ export default function RoomCodeScreen(): JSX.Element {
         </Pressable>
       </View>
 
-      <Text style={styles.countText}>{players.length}/{room?.maxPlayers ?? 6} players</Text>
+      <Text style={styles.countText}>
+        {players.length}/{room?.maxPlayers ?? 6} players
+      </Text>
 
-      <Animated.View style={listPulseStyle}>
+      <Animated.View style={[listPulseStyle, styles.playerListContainer]}>
         <ScrollView contentContainerStyle={styles.playersWrap}>
           {players.map((player) => (
             <Animated.View
@@ -256,7 +261,7 @@ export default function RoomCodeScreen(): JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 24,
+    padding: 16,
     gap: 10,
     backgroundColor: "#f8fafc",
   },
@@ -272,6 +277,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    flexWrap: "wrap",
+  },
+  codeRowSmall: {
+    gap: 6,
   },
   codeButton: {
     borderWidth: 1,
@@ -291,6 +300,9 @@ const styles = StyleSheet.create({
   playersWrap: {
     gap: 8,
     paddingVertical: 8,
+  },
+  playerListContainer: {
+    flex: 1,
   },
   playerRow: {
     borderRadius: 10,
@@ -322,7 +334,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   primaryButton: {
-    marginTop: "auto",
     borderRadius: 10,
     backgroundColor: "#2563eb",
     alignItems: "center",
