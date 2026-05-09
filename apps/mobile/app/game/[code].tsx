@@ -346,7 +346,6 @@ export default function GameCodeScreen(): JSX.Element {
                   style={[
                     styles.sourceCardChip,
                     index > 0 && styles.sourceCardChipStacked,
-                    selectedSource && styles.sourceCardChipActive,
                   ]}
                 >
                   <CardView
@@ -372,12 +371,7 @@ export default function GameCodeScreen(): JSX.Element {
             {askCardsForHalfSuit.map((card) => (
               <View
                 key={`${card.rank}-${card.suit}`}
-                style={[
-                  styles.askCardChip,
-                  selectedAskCard?.rank === card.rank && selectedAskCard?.suit === card.suit
-                    ? styles.askCardChipActive
-                    : null,
-                ]}
+              style={styles.askCardChip}
               >
                 <CardView
                   card={card}
@@ -615,20 +609,12 @@ const styles = StyleSheet.create({
     paddingLeft: 2,
   },
   sourceCardChip: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#334155",
-    paddingHorizontal: 2,
-    paddingVertical: 2,
-    backgroundColor: "rgba(2,6,23,0.7)",
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    backgroundColor: "transparent",
   },
   sourceCardChipStacked: {
     marginLeft: -20,
-  },
-  sourceCardChipActive: {
-    borderColor: "#22c55e",
-    borderWidth: 2,
-    backgroundColor: "rgba(34,197,94,0.12)",
   },
   askCardRow: {
     flexDirection: "row",
@@ -639,21 +625,9 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   askCardChip: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#334155",
-    paddingHorizontal: 2,
-    paddingVertical: 2,
-    backgroundColor: "rgba(2,6,23,0.7)",
-  },
-  askCardChipActive: {
-    borderColor: "#f59e0b",
-    backgroundColor: "#1e293b",
-    shadowColor: "#f59e0b",
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    backgroundColor: "transparent",
   },
   opponentRow: {
     flexDirection: "row",

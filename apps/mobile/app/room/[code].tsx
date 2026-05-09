@@ -13,6 +13,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { StatusBar } from "expo-status-bar";
 
 import { Team, type GameState } from "@shared/src";
 
@@ -60,6 +61,16 @@ export default function RoomCodeScreen(): JSX.Element {
   const canStart = isHost && players.length >= 4 && allPlayersReady;
   const teamAPlayers = players.filter((player) => player.team === Team.TEAM_A);
   const teamBPlayers = players.filter((player) => player.team === Team.TEAM_B);
+  type RoomMember = (typeof players)[number];
+  const slotsPerTeam = Math.max(2, Math.floor((room?.maxPlayers ?? 6) / 2));
+  const teamASlots: Array<RoomMember | null> = [
+    ...teamAPlayers,
+    ...Array.from({ length: Math.max(0, slotsPerTeam - teamAPlayers.length) }, () => null),
+  ];
+  const teamBSlots: Array<RoomMember | null> = [
+    ...teamBPlayers,
+    ...Array.from({ length: Math.max(0, slotsPerTeam - teamBPlayers.length) }, () => null),
+  ];
 
   useEffect(() => {
     let mounted = true;
@@ -200,9 +211,10 @@ export default function RoomCodeScreen(): JSX.Element {
 
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar style="light" />
       <View style={[styles.header, isCompact && styles.headerCompact]}>
-        <Text style={[styles.title, isCompact && styles.titleCompact]}>Room Lobby</Text>
-        <Text style={[styles.roomCode, isCompact && styles.roomCodeCompact]}>{normalizedCode || "-"}</Text>
+        <Text style={[styles.title, isCompact && styles.titleCompact]}>Room Code</Text>
+        <Text style={[styles.roomCode, isCompact && styles.roomCodeCompact]}>{normalizedCode || "------"}</Text>
         <View style={styles.codeActions}>
           <Pressable style={styles.codeActionButton} onPress={() => void onCopyCode()}>
             <Text style={styles.codeActionText}>Copy</Text>
@@ -221,40 +233,54 @@ export default function RoomCodeScreen(): JSX.Element {
           <View style={[styles.teamColumn, isCompact && styles.teamColumnCompact]}>
             <Text style={[styles.teamTitle, styles.teamATitle]}>Team A</Text>
             <ScrollView contentContainerStyle={styles.teamList} showsVerticalScrollIndicator={false}>
-              {teamAPlayers.map((player) => (
-                <View key={player.id} style={[styles.playerCard, styles.playerCardA, isCompact && styles.playerCardCompact]}>
-                  <Avatar displayName={player.displayName} avatarUrl={player.avatarUrl ?? undefined} size={avatarSize} />
-                  <Text style={styles.playerName} numberOfLines={1}>
-                    {player.displayName}
-                  </Text>
-                  {player.isReady ? (
-                    <Text style={styles.readyBadge}>✓ Ready</Text>
-                  ) : (
-                    <Text style={styles.notReadyBadge}>Not ready</Text>
-                  )}
-                  {player.isBot ? <Text style={styles.botBadge}>Bot</Text> : null}
-                </View>
-              ))}
+              {teamASlots.map((player, index) =>
+                player ? (
+                  <View key={player.id} style={[styles.playerCard, styles.playerCardA, isCompact && styles.playerCardCompact]}>
+                    <Avatar displayName={player.displayName} avatarUrl={player.avatarUrl ?? undefined} size={avatarSize} />
+                    <Text style={styles.playerName} numberOfLines={1}>
+                      {player.displayName}
+                    </Text>
+                    <Text style={player.isReady ? styles.readyBadge : styles.notReadyBadge}>
+                      {player.isReady ? "✓ Ready" : "○ Not ready"}
+                    </Text>
+                    <View style={styles.playerMetaRow}>
+                      {player.id === user?.id ? <Text style={styles.youBadge}>You</Text> : null}
+                      {player.isBot ? <Text style={styles.botBadge}>Bot</Text> : null}
+                    </View>
+                  </View>
+                ) : (
+                  <View key={`a-empty-${index}`} style={[styles.emptySlot, isCompact && styles.playerCardCompact]}>
+                    <View style={styles.emptyCircle} />
+                  </View>
+                ),
+              )}
             </ScrollView>
           </View>
 
           <View style={[styles.teamColumn, isCompact && styles.teamColumnCompact]}>
             <Text style={[styles.teamTitle, styles.teamBTitle]}>Team B</Text>
             <ScrollView contentContainerStyle={styles.teamList} showsVerticalScrollIndicator={false}>
-              {teamBPlayers.map((player) => (
-                <View key={player.id} style={[styles.playerCard, styles.playerCardB, isCompact && styles.playerCardCompact]}>
-                  <Avatar displayName={player.displayName} avatarUrl={player.avatarUrl ?? undefined} size={avatarSize} />
-                  <Text style={styles.playerName} numberOfLines={1}>
-                    {player.displayName}
-                  </Text>
-                  {player.isReady ? (
-                    <Text style={styles.readyBadge}>✓ Ready</Text>
-                  ) : (
-                    <Text style={styles.notReadyBadge}>Not ready</Text>
-                  )}
-                  {player.isBot ? <Text style={styles.botBadge}>Bot</Text> : null}
-                </View>
-              ))}
+              {teamBSlots.map((player, index) =>
+                player ? (
+                  <View key={player.id} style={[styles.playerCard, styles.playerCardB, isCompact && styles.playerCardCompact]}>
+                    <Avatar displayName={player.displayName} avatarUrl={player.avatarUrl ?? undefined} size={avatarSize} />
+                    <Text style={styles.playerName} numberOfLines={1}>
+                      {player.displayName}
+                    </Text>
+                    <Text style={player.isReady ? styles.readyBadge : styles.notReadyBadge}>
+                      {player.isReady ? "✓ Ready" : "○ Not ready"}
+                    </Text>
+                    <View style={styles.playerMetaRow}>
+                      {player.id === user?.id ? <Text style={styles.youBadge}>You</Text> : null}
+                      {player.isBot ? <Text style={styles.botBadge}>Bot</Text> : null}
+                    </View>
+                  </View>
+                ) : (
+                  <View key={`b-empty-${index}`} style={[styles.emptySlot, isCompact && styles.playerCardCompact]}>
+                    <View style={styles.emptyCircle} />
+                  </View>
+                ),
+              )}
             </ScrollView>
           </View>
         </View>
@@ -266,12 +292,14 @@ export default function RoomCodeScreen(): JSX.Element {
           style={[styles.startButton, (!canStart || updating) && styles.disabledButton]}
           onPress={() => void onStartGame()}
         >
-          <Text style={styles.startButtonText}>{updating ? "Starting..." : "Start Game"}</Text>
+          <Text style={styles.startButtonText}>
+            {updating ? "Starting..." : `Start Game (${players.length}/${room?.maxPlayers ?? 6} players)`}
+          </Text>
         </Pressable>
       ) : (
         <Pressable
           disabled={updating}
-          style={[styles.readyButton, updating && styles.disabledButton]}
+          style={[styles.readyButton, myPlayer?.isReady && styles.readyButtonActive, updating && styles.disabledButton]}
           onPress={() => void onToggleReady()}
         >
           <Text style={styles.readyButtonText}>{myPlayer?.isReady ? "Unready" : "Ready"}</Text>
@@ -302,9 +330,11 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   title: {
-    color: "#f8fafc",
+    color: "#94a3b8",
     fontWeight: "700",
-    fontSize: 20,
+    fontSize: 14,
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
   titleCompact: {
     fontSize: 18,
@@ -313,7 +343,8 @@ const styles = StyleSheet.create({
     fontSize: 34,
     letterSpacing: 3,
     fontWeight: "800",
-    color: "#f8fafc",
+    color: "#f59e0b",
+    fontFamily: "monospace",
   },
   roomCodeCompact: {
     fontSize: 30,
@@ -337,7 +368,7 @@ const styles = StyleSheet.create({
   },
   countText: {
     fontWeight: "800",
-    fontSize: 15,
+    fontSize: 14,
     color: "#f8fafc",
   },
   playerListContainer: {
@@ -385,6 +416,7 @@ const styles = StyleSheet.create({
     gap: 6,
     alignItems: "center",
     borderWidth: 1,
+    minHeight: 112,
   },
   playerCardCompact: {
     padding: 6,
@@ -414,17 +446,51 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 11,
   },
+  playerMetaRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  youBadge: {
+    color: "#111827",
+    backgroundColor: "#f59e0b",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    fontSize: 10,
+    fontWeight: "800",
+  },
   botBadge: {
     color: "#f59e0b",
     fontWeight: "700",
     fontSize: 11,
   },
+  emptySlot: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#475569",
+    minHeight: 112,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(15,23,42,0.35)",
+  },
+  emptyCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#64748b",
+  },
   readyButton: {
     borderRadius: 12,
-    backgroundColor: "#2563eb",
+    backgroundColor: "#475569",
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 12,
+  },
+  readyButtonActive: {
+    backgroundColor: "#22c55e",
   },
   readyButtonText: {
     color: "#ffffff",

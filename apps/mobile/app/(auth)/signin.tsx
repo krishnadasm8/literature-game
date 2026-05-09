@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import {
@@ -7,6 +7,7 @@ import {
   makeRedirectUri,
 } from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
+import { StatusBar } from "expo-status-bar";
 
 import { useAuth } from "../../hooks/useAuth";
 
@@ -29,8 +30,6 @@ export default function SignInScreen(): JSX.Element {
       }),
     [],
   );
-  console.log("Redirect URI:", redirectUri);
-
   const [request, response, promptAsync] = Google.useAuthRequest({
     clientId: googleClientId,
     androidClientId: googleClientId,
@@ -79,65 +78,89 @@ export default function SignInScreen(): JSX.Element {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Sign In</Text>
-      <Text style={styles.subtitle}>Sign in to continue to Literature.</Text>
+    <SafeAreaView style={styles.container}>
+      <StatusBar style="light" />
+      <View style={styles.center}>
+        <Text style={styles.suits}>♠ ♥ ♦ ♣</Text>
+        <Text style={styles.title}>LITERATURE</Text>
+        <Text style={styles.subtitle}>Canadian Card Game</Text>
 
-      <Pressable
-        style={[styles.button, (!request || loading) && styles.buttonDisabled]}
-        disabled={!request || loading}
-        onPress={() => {
-          void onGooglePress();
-        }}
-      >
-        {loading ? (
-          <ActivityIndicator color="#ffffff" />
-        ) : (
-          <Text style={styles.buttonText}>Continue with Google</Text>
-        )}
-      </Pressable>
+        <Pressable
+          style={[styles.button, (!request || loading) && styles.buttonDisabled]}
+          disabled={!request || loading}
+          onPress={() => {
+            void onGooglePress();
+          }}
+        >
+          {loading ? (
+            <ActivityIndicator color="#111827" />
+          ) : (
+            <Text style={styles.buttonText}>G Continue with Google</Text>
+          )}
+        </Pressable>
 
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-    </View>
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      </View>
+      <Text style={styles.legalText}>By continuing you agree to our Terms of Service</Text>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    backgroundColor: "#0f172a",
     padding: 24,
   },
-  title: {
-    fontSize: 24,
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  suits: {
+    fontSize: 22,
     fontWeight: "700",
+    color: "#94a3b8",
+  },
+  title: {
+    fontSize: 38,
+    fontWeight: "900",
+    color: "#f59e0b",
   },
   subtitle: {
-    marginTop: 8,
     fontSize: 14,
-    color: "#4b5563",
+    color: "#94a3b8",
     marginBottom: 20,
   },
   button: {
-    minWidth: 220,
-    borderRadius: 10,
-    backgroundColor: "#2563eb",
+    width: "100%",
+    maxWidth: 380,
+    borderRadius: 14,
+    backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   buttonText: {
-    color: "#ffffff",
-    fontWeight: "700",
+    color: "#111827",
+    fontWeight: "800",
+    fontSize: 15,
   },
   errorText: {
     marginTop: 12,
-    color: "#dc2626",
+    color: "#ef4444",
     fontSize: 13,
+    textAlign: "center",
+  },
+  legalText: {
+    color: "#94a3b8",
+    fontSize: 11,
+    textAlign: "center",
+    marginBottom: 6,
   },
 });
