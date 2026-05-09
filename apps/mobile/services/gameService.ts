@@ -32,3 +32,12 @@ export const respondToAsk = async (
   });
   return result.data;
 };
+
+export const timeoutTurn = async (
+  gameId: string,
+): Promise<{ ok: boolean; currentTurnPlayerId: string; currentTurnPlayerName: string }> => {
+  const result = await api.post<{ ok: boolean; currentTurnPlayerId: string; currentTurnPlayerName: string }>(
+    `/games/${gameId}/timeout`,
+  );
+  return result.data;
+};

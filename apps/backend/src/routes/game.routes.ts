@@ -261,6 +261,90 @@ router.post("/:id/respond", authMiddleware, async (req: AuthenticatedRequest, re
   }
 });
 
+router.post("/:id/timeout", authMiddleware, async (req: AuthenticatedRequest, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const gameId = String(req.params.id);
+    const game = await prisma.game.findUnique({
+      where: { id: gameId },
+      include: {
+        room: {
+          include: {
+            players: {
+              include: {
+                user: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!game) {
+      res.status(404).json({ error: "Game not found." });
+      return;
+    }
+
+    if (game.currentTurnPlayerId !== userId) {
+      res.status(400).json({ error: "Only current turn player can timeout pass." });
+      return;
+    }
+
+    const players = [...game.room.players].sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime());
+    const currentPlayer = players.find((player) => player.userId === userId);
+    if (!currentPlayer) {
+      res.status(400).json({ error: "Current player not found in room." });
+      return;
+    }
+
+    const nextPlayer =
+      players.find((player) => player.team !== currentPlayer.team) ??
+      players.find((player) => player.userId !== currentPlayer.userId);
+
+    if (!nextPlayer) {
+      res.status(400).json({ error: "No eligible player to pass turn." });
+      return;
+    }
+
+    await prisma.game.update({
+      where: { id: game.id },
+      data: {
+        currentTurnPlayerId: nextPlayer.userId,
+      },
+    });
+
+    emitToGameNamespace(game.room.roomCode, "game:turn_changed", {
+      gameId: game.id,
+      currentTurnPlayerId: nextPlayer.userId,
+      currentTurnPlayerName: nextPlayer.user.displayName,
+      reason: "TIMEOUT",
+    });
+
+    const updatedForCurrent = await gameManager.getGameState({
+      gameIdOrRoomCode: game.id,
+      requestingPlayerId: userId,
+    });
+
+    emitToGameNamespace(game.room.roomCode, "game:state_update", {
+      gameState: updatedForCurrent?.gameState,
+    });
+
+    res.status(200).json({
+      ok: true,
+      message: `Turn passed to ${nextPlayer.user.displayName}`,
+      currentTurnPlayerId: nextPlayer.userId,
+      currentTurnPlayerName: nextPlayer.user.displayName,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : "Failed to pass timed-out turn." });
+  }
+});
+
 router.post("/:id/forfeit", (_req, res) => {
   res.status(501).json({ message: "Not implemented" });
 });

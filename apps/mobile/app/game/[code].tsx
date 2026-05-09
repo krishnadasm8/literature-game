@@ -24,7 +24,7 @@ import { HalfSuit, MoveType, type Card, type Move, Team } from "@shared/src";
 import { CardView } from "../../components/cards/CardView";
 import { ActionLog } from "../../components/game/ActionLog";
 import { useGameState } from "../../hooks/useGameState";
-import { playCard, respondToAsk } from "../../services/gameService";
+import { playCard, respondToAsk, timeoutTurn } from "../../services/gameService";
 import { socketService } from "../../services/socket";
 import { useAuthStore } from "../../store/authStore";
 import { useGameStore } from "../../store/gameStore";
@@ -34,6 +34,7 @@ const RANKS_BY_TIER = {
   LOW: ["TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN"],
   HIGH: ["NINE", "TEN", "JACK", "QUEEN", "KING", "ACE"],
 } as const;
+const TURN_ASK_TIMEOUT_SECONDS = 60;
 
 interface IncomingAsk {
   gameId: string;
@@ -85,9 +86,11 @@ export default function GameCodeScreen(): JSX.Element {
   const [submitting, setSubmitting] = useState(false);
   const [respondingAsk, setRespondingAsk] = useState(false);
   const [askPanelOpen, setAskPanelOpen] = useState(false);
+  const [askTimeLeft, setAskTimeLeft] = useState(TURN_ASK_TIMEOUT_SECONDS);
 
   const moveExpiryTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timeoutSentForTurnRef = useRef<string | null>(null);
   const actionSlideY = useSharedValue(12);
   const actionOpacity = useSharedValue(0);
 
@@ -183,6 +186,9 @@ export default function GameCodeScreen(): JSX.Element {
 
   const selectedOpponentName =
     askableOpponents.find((player) => player.id === selectedOpponentId)?.displayName ?? "none";
+  const isAskTimeout = askTimeLeft <= 0;
+  const passedTurnNameFallback = askableOpponents[0]?.displayName ?? "opponent";
+  const displayIsMyTurn = isMyTurn;
 
   const askCardsForHalfSuit = useMemo(() => {
     if (!selectedHalfSuit) {
@@ -216,8 +222,45 @@ export default function GameCodeScreen(): JSX.Element {
     isMyTurn && selectedOpponentId && selectedHalfSuit && selectedAskCard && !submitting,
   );
 
+  useEffect(() => {
+    if (!gameState?.currentTurnPlayerId) {
+      return;
+    }
+
+    timeoutSentForTurnRef.current = null;
+    setAskTimeLeft(TURN_ASK_TIMEOUT_SECONDS);
+    const timer = setInterval(() => {
+      setAskTimeLeft((prev) => {
+        if (prev <= 1) {
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [gameState?.currentTurnPlayerId]);
+
+  useEffect(() => {
+    const currentTurnPlayerId = gameState?.currentTurnPlayerId;
+    if (!gameState?.id || !currentTurnPlayerId || !isMyTurn || pendingOutgoingAsk || askTimeLeft > 0) {
+      return;
+    }
+
+    if (timeoutSentForTurnRef.current === currentTurnPlayerId) {
+      return;
+    }
+    timeoutSentForTurnRef.current = currentTurnPlayerId;
+
+    void timeoutTurn(gameState.id).catch(() => {
+      // Server may reject duplicate timeout requests from lagging clients.
+    });
+  }, [askTimeLeft, gameState?.currentTurnPlayerId, gameState?.id, isMyTurn, pendingOutgoingAsk]);
+
   const submitAsk = async (): Promise<void> => {
-    if (!gameState || !selectedOpponentId || !selectedAskCard) {
+    if (!gameState || !selectedOpponentId || !selectedAskCard || !isMyTurn) {
       return;
     }
     const targetName = askableOpponents.find((player) => player.id === selectedOpponentId)?.displayName ?? "opponent";
@@ -305,6 +348,10 @@ export default function GameCodeScreen(): JSX.Element {
           <Text style={[styles.scoreText, styles.teamAText]}>Team A: {teamAScore}</Text>
           <Text style={styles.roundText}>Round {gameState.round}</Text>
           <Text style={[styles.scoreText, styles.teamBText]}>Team B: {teamBScore}</Text>
+          <View style={styles.scoreTimerWrap}>
+            <Text style={styles.scoreTimerIcon}>⏱</Text>
+            <Text style={styles.scoreTimerText}>{askTimeLeft}s</Text>
+          </View>
         </View>
 
         <View style={styles.playersWrap}>
@@ -347,7 +394,7 @@ export default function GameCodeScreen(): JSX.Element {
               ? `Waiting for ${pendingOutgoingAsk.targetPlayerName}...`
               : isMyTurn
                 ? "YOUR TURN"
-                : `Waiting for ${currentTurnName}...`}
+                : `Waiting for ${currentTurnName}'s turn`}
           </Text>
           {notificationText ? <Text style={styles.notice}>{notificationText}</Text> : null}
           {!askPanelOpen && centerAction ? (
@@ -356,10 +403,22 @@ export default function GameCodeScreen(): JSX.Element {
             </Animated.Text>
           ) : null}
           <View style={styles.actionLogWrap}>{moveHistory.length > 0 ? <ActionLog moves={moveHistory} /> : null}</View>
-          {!askPanelOpen && isMyTurn && !pendingOutgoingAsk ? (
-            <Pressable style={styles.openAskButton} onPress={() => setAskPanelOpen(true)}>
-              <Text style={styles.openAskText}>Ask</Text>
-            </Pressable>
+          {!askPanelOpen && isMyTurn && !pendingOutgoingAsk && !isAskTimeout ? (
+            <View style={styles.askTimerSection}>
+              <Pressable
+                style={styles.openAskButton}
+                onPress={() => {
+                  setAskPanelOpen(true);
+                }}
+              >
+                <Text style={styles.openAskText}>Ask</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {isAskTimeout && isMyTurn && !pendingOutgoingAsk ? (
+            <Text style={styles.timeWarning}>
+              {`Times up! Now its ${passedTurnNameFallback}'s turn`}
+            </Text>
           ) : null}
           <View style={styles.myCardsPreviewWrap}>
             <FlatList
@@ -598,6 +657,22 @@ const styles = StyleSheet.create({
   },
   scoreText: { fontWeight: "800", fontSize: 12 },
   roundText: { color: "#f59e0b", fontWeight: "900", fontSize: 13 },
+  scoreTimerWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginLeft: 4,
+  },
+  scoreTimerIcon: {
+    color: "#f59e0b",
+    fontSize: 12,
+  },
+  scoreTimerText: {
+    color: "#f8fafc",
+    fontWeight: "800",
+    fontSize: 11,
+    minWidth: 30,
+  },
   teamAText: { color: "#3b82f6" },
   teamBText: { color: "#ef4444" },
   playersWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "space-between" },
@@ -649,6 +724,17 @@ const styles = StyleSheet.create({
     color: "#111827",
     fontWeight: "900",
     fontSize: 14,
+  },
+  askTimerSection: {
+    marginTop: 2,
+    alignItems: "center",
+    gap: 6,
+  },
+  timeWarning: {
+    color: "#ef4444",
+    fontWeight: "900",
+    fontSize: 12,
+    textAlign: "center",
   },
   myCardsPreviewWrap: {
     marginTop: 10,

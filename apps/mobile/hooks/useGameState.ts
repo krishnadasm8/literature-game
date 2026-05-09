@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { AppState } from "react-native";
+import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import { useRouter } from "expo-router";
 
@@ -54,14 +55,21 @@ export const useGameState = (roomCode?: string): void => {
     const offTurnChanged = socketService.on<{ currentTurnPlayerName: string }>(
       "game:turn_changed",
       async (payload) => {
-        if (AppState.currentState !== "active") {
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: "Your turn is changing",
-              body: `Now playing: ${payload.currentTurnPlayerName}`,
-            },
-            trigger: null,
-          });
+        const canScheduleNativeNotification =
+          Platform.OS !== "web" && typeof Notifications.scheduleNotificationAsync === "function";
+
+        if (AppState.currentState !== "active" && canScheduleNativeNotification) {
+          try {
+            await Notifications.scheduleNotificationAsync({
+              content: {
+                title: "Your turn is changing",
+                body: `Now playing: ${payload.currentTurnPlayerName}`,
+              },
+              trigger: null,
+            });
+          } catch {
+            // Best-effort notifications; ignore unsupported runtime failures.
+          }
         }
       },
     );
