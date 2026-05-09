@@ -17,6 +17,9 @@ interface CardViewProps {
   selected: boolean;
   playable: boolean;
   onPress?: () => void;
+  width?: number;
+  height?: number;
+  selectedLift?: number;
 }
 
 const SUIT_SYMBOLS: Record<Card["suit"], string> = {
@@ -41,20 +44,29 @@ const RANK_LABELS: Record<Card["rank"], string> = {
   [Rank.ACE]: "A",
 };
 
-export function CardView({ card, faceUp, selected, playable, onPress }: CardViewProps): JSX.Element {
+export function CardView({
+  card,
+  faceUp,
+  selected,
+  playable,
+  onPress,
+  width = 52,
+  height = 76,
+  selectedLift = 12,
+}: CardViewProps): JSX.Element {
   const isRedSuit = useMemo(
     () => card.suit === Suit.HEARTS || card.suit === Suit.DIAMONDS,
     [card.suit],
   );
   const scale = useSharedValue(1);
-  const lift = useSharedValue(selected ? -12 : 0);
+  const lift = useSharedValue(selected ? -selectedLift : 0);
 
   useEffect(() => {
-    lift.value = withSpring(selected ? -12 : 0, {
+    lift.value = withSpring(selected ? -selectedLift : 0, {
       damping: 14,
       stiffness: 180,
     });
-  }, [lift, selected]);
+  }, [lift, selected, selectedLift]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: lift.value }, { scale: scale.value }],
@@ -79,6 +91,7 @@ export function CardView({ card, faceUp, selected, playable, onPress }: CardView
           <View
             style={[
               styles.card,
+              { width, height },
               playable && styles.playableCard,
               !playable && styles.nonPlayableCard,
               selected && styles.selectedCard,
@@ -96,7 +109,7 @@ export function CardView({ card, faceUp, selected, playable, onPress }: CardView
           </View>
         ) : (
           <View style={[styles.card, styles.cardBack, selected && styles.selectedCard]}>
-            <CardBack width={52} height={76} />
+            <CardBack width={width} height={height} />
           </View>
         )}
       </Animated.View>
@@ -107,10 +120,9 @@ export function CardView({ card, faceUp, selected, playable, onPress }: CardView
 const styles = StyleSheet.create({
   pressable: {
     borderRadius: 8,
+    overflow: "visible",
   },
   card: {
-    width: 52,
-    height: 76,
     borderRadius: 8,
     borderWidth: 2,
     borderColor: "#d4d4d8",
@@ -139,7 +151,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.16,
   },
   selectedCard: {
+    borderWidth: 2,
     borderColor: "#f59e0b",
+    borderRadius: 8,
+    shadowColor: "#f59e0b",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+    elevation: 12,
   },
   cornerText: {
     fontSize: 9,

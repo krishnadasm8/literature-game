@@ -78,8 +78,8 @@ export default function RootLayout(): JSX.Element {
               headerRight: () => (
                 <Pressable
                   onPress={() => {
-                    Alert.alert("Leave Game", "Are you sure you want to leave this game?", [
-                      { text: "Cancel", style: "cancel" },
+                    Alert.alert("Leave Game?", "Are you sure you want to leave? Your team may forfeit.", [
+                      { text: "Stay", style: "cancel" },
                       {
                         text: "Leave",
                         style: "destructive",

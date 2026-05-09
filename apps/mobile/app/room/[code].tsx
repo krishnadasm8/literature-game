@@ -453,7 +453,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     alignItems: "center",
     gap: 4,
-    minHeight: 154,
+    height: 178,
   },
   avatarCircle: {
     width: 52,
@@ -520,7 +520,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   emptySlot: {
-    minHeight: 154,
+    height: 178,
     borderRadius: 12,
     borderWidth: 1,
     borderStyle: "dashed",

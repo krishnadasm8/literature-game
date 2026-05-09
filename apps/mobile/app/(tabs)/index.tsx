@@ -71,7 +71,7 @@ export default function HomeScreen(): JSX.Element {
           <Pressable style={styles.createButton} onPress={() => router.push("/(tabs)/lobby")}>
             <Text style={styles.createButtonText}>Create Room</Text>
           </Pressable>
-          <Pressable style={styles.joinButton} onPress={() => router.push("/(tabs)/lobby")}>
+          <Pressable style={styles.joinButton} onPress={() => router.push({ pathname: "/(tabs)/lobby", params: { tab: "join" } })}>
             <Text style={styles.joinButtonText}>Join Room</Text>
           </Pressable>
         </View>

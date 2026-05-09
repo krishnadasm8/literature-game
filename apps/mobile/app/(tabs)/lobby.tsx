@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -13,7 +13,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as Clipboard from "expo-clipboard";
 
@@ -29,6 +29,7 @@ interface RoomApiResponse {
 
 export default function LobbyScreen(): JSX.Element {
   const router = useRouter();
+  const { tab } = useLocalSearchParams<{ tab?: string }>();
   const { width } = useWindowDimensions();
   const isSmallScreen = width < 390;
   const accessToken = useAuthStore((state) => state.accessToken);
@@ -39,9 +40,19 @@ export default function LobbyScreen(): JSX.Element {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [createdRoomCode, setCreatedRoomCode] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<"CREATE" | "JOIN">("CREATE");
+  const [activeTab, setActiveTab] = useState<"CREATE" | "JOIN">(tab?.toLowerCase() === "join" ? "JOIN" : "CREATE");
 
   const canJoin = useMemo(() => roomCode.length === 6, [roomCode.length]);
+
+  useEffect(() => {
+    if (tab?.toLowerCase() === "join") {
+      setActiveTab("JOIN");
+      return;
+    }
+    if (tab?.toLowerCase() === "create") {
+      setActiveTab("CREATE");
+    }
+  }, [tab]);
 
   const showError = (message: string): void => {
     setErrorMessage(message);
