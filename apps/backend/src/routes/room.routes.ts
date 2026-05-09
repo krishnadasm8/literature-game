@@ -248,6 +248,13 @@ router.post("/:code/ready", authMiddleware, async (req: AuthenticatedRequest, re
       res.status(500).json({ error: "Failed to refresh room." });
       return;
     }
+
+    emitToRoomNamespace(roomCode, "room:player_ready", {
+      roomCode,
+      playerId: userId,
+      isReady,
+    });
+
     res.status(200).json({ room: toPublicRoom(updatedRoom) });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : "Failed to update readiness." });

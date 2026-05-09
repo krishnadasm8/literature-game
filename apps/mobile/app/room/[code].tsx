@@ -101,6 +101,14 @@ export default function RoomCodeScreen(): JSX.Element {
       "/room",
     );
 
+    const offPlayerReady = socketService.on<{ playerId: string; isReady: boolean }>(
+      "room:player_ready",
+      async () => {
+        await refreshRoom();
+      },
+      "/room",
+    );
+
     const offGameStarting = socketService.on<{ roomCode: string }>(
       "room:game_starting",
       (payload) => {
@@ -117,6 +125,7 @@ export default function RoomCodeScreen(): JSX.Element {
       mounted = false;
       offPlayerJoined();
       offPlayerLeft();
+      offPlayerReady();
       offGameStarting();
       socket.disconnect();
     };
