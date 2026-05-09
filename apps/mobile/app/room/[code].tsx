@@ -16,7 +16,7 @@ import {
 
 import { Team, type GameState } from "@shared/src";
 
-import { PlayerSlot } from "../../components/room/PlayerSlot";
+import { Avatar } from "../../components/ui/Avatar";
 import { getRoom, joinRoom, setReady, startGame } from "../../services/roomService";
 import { socketService } from "../../services/socket";
 import { useAuthStore } from "../../store/authStore";
@@ -25,8 +25,6 @@ import { useRoomStore } from "../../store/roomStore";
 
 export default function RoomCodeScreen(): JSX.Element {
   const router = useRouter();
-  const { width } = useWindowDimensions();
-  const isSmallScreen = width < 390;
   const { code } = useLocalSearchParams<{ code: string }>();
   const normalizedCode = (code ?? "").toUpperCase();
   const user = useAuthStore((state) => state.user);
@@ -37,21 +35,31 @@ export default function RoomCodeScreen(): JSX.Element {
   const setMyHand = useGameStore((state) => state.setMyHand);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const { width, height } = useWindowDimensions();
+  const isCompact = width <= 390 || height <= 844;
+  const avatarSize = isCompact ? 34 : 42;
   const joinedAnim = useMemo(() => new Animated.Value(0), []);
   const listPulseStyle = {
     transform: [
       {
-        scale: joinedAnim.interpolate({
+        translateX: joinedAnim.interpolate({
           inputRange: [0, 1],
-          outputRange: [1, 1.02],
+          outputRange: [32, 0],
         }),
       },
     ],
+    opacity: joinedAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0.35, 1],
+    }),
   };
 
   const myPlayer = players.find((player) => player.id === user?.id);
   const isHost = room?.hostId === user?.id;
-  const canStart = isHost && players.length >= 4;
+  const allPlayersReady = players.length > 0 && players.every((player) => player.isReady);
+  const canStart = isHost && players.length >= 4 && allPlayersReady;
+  const teamAPlayers = players.filter((player) => player.team === Team.TEAM_A);
+  const teamBPlayers = players.filter((player) => player.team === Team.TEAM_B);
 
   useEffect(() => {
     let mounted = true;
@@ -90,9 +98,9 @@ export default function RoomCodeScreen(): JSX.Element {
     const offPlayerJoined = socketService.on<{ playerId: string }>(
       "room:player_joined",
       async () => {
+        joinedAnim.setValue(0);
         Animated.sequence([
-          Animated.timing(joinedAnim, { toValue: 1, duration: 160, useNativeDriver: true }),
-          Animated.timing(joinedAnim, { toValue: 0, duration: 160, useNativeDriver: true }),
+          Animated.timing(joinedAnim, { toValue: 1, duration: 260, useNativeDriver: true }),
         ]).start();
         await refreshRoom();
       },
@@ -192,66 +200,81 @@ export default function RoomCodeScreen(): JSX.Element {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Room Lobby</Text>
-      <View style={[styles.codeRow, isSmallScreen && styles.codeRowSmall]}>
-        <Text style={styles.subtitle}>Room code: {normalizedCode || "-"}</Text>
-        <Pressable style={styles.codeButton} onPress={() => void onCopyCode()}>
-          <Text style={styles.codeButtonText}>Copy</Text>
-        </Pressable>
-        <Pressable style={styles.codeButton} onPress={() => void onShare()}>
-          <Text style={styles.codeButtonText}>Share</Text>
-        </Pressable>
+      <View style={[styles.header, isCompact && styles.headerCompact]}>
+        <Text style={[styles.title, isCompact && styles.titleCompact]}>Room Lobby</Text>
+        <Text style={[styles.roomCode, isCompact && styles.roomCodeCompact]}>{normalizedCode || "-"}</Text>
+        <View style={styles.codeActions}>
+          <Pressable style={styles.codeActionButton} onPress={() => void onCopyCode()}>
+            <Text style={styles.codeActionText}>Copy</Text>
+          </Pressable>
+          <Pressable style={styles.codeActionButton} onPress={() => void onShare()}>
+            <Text style={styles.codeActionText}>Share</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.countText}>
+          {players.length} / {room?.maxPlayers ?? 6} players
+        </Text>
       </View>
 
-      <Text style={styles.countText}>
-        {players.length}/{room?.maxPlayers ?? 6} players
-      </Text>
+      <Animated.View style={[styles.playerListContainer, listPulseStyle]}>
+        <View style={[styles.columns, isCompact && styles.columnsCompact]}>
+          <View style={[styles.teamColumn, isCompact && styles.teamColumnCompact]}>
+            <Text style={[styles.teamTitle, styles.teamATitle]}>Team A</Text>
+            <ScrollView contentContainerStyle={styles.teamList} showsVerticalScrollIndicator={false}>
+              {teamAPlayers.map((player) => (
+                <View key={player.id} style={[styles.playerCard, styles.playerCardA, isCompact && styles.playerCardCompact]}>
+                  <Avatar displayName={player.displayName} avatarUrl={player.avatarUrl ?? undefined} size={avatarSize} />
+                  <Text style={styles.playerName} numberOfLines={1}>
+                    {player.displayName}
+                  </Text>
+                  {player.isReady ? (
+                    <Text style={styles.readyBadge}>✓ Ready</Text>
+                  ) : (
+                    <Text style={styles.notReadyBadge}>Not ready</Text>
+                  )}
+                  {player.isBot ? <Text style={styles.botBadge}>Bot</Text> : null}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
 
-      <Animated.View style={[listPulseStyle, styles.playerListContainer]}>
-        <ScrollView contentContainerStyle={styles.playersWrap}>
-          {players.map((player) => (
-            <Animated.View
-              key={player.id}
-              style={[styles.playerRow, player.team === Team.TEAM_A ? styles.teamA : styles.teamB]}
-            >
-              <PlayerSlot
-                player={
-                  {
-                    id: player.id,
-                    displayName: player.displayName,
-                    avatarUrl: player.avatarUrl ?? "",
-                    team: player.team,
-                    handCount: 0,
-                    isBot: player.isBot,
-                    isConnected: true,
-                  } as any
-                }
-                showCardCount={false}
-              />
-              <View style={styles.meta}>
-                {player.isBot ? <Text style={styles.badge}>Bot</Text> : null}
-                {player.isReady ? <Text style={styles.badge}>Ready</Text> : null}
-              </View>
-            </Animated.View>
-          ))}
-        </ScrollView>
+          <View style={[styles.teamColumn, isCompact && styles.teamColumnCompact]}>
+            <Text style={[styles.teamTitle, styles.teamBTitle]}>Team B</Text>
+            <ScrollView contentContainerStyle={styles.teamList} showsVerticalScrollIndicator={false}>
+              {teamBPlayers.map((player) => (
+                <View key={player.id} style={[styles.playerCard, styles.playerCardB, isCompact && styles.playerCardCompact]}>
+                  <Avatar displayName={player.displayName} avatarUrl={player.avatarUrl ?? undefined} size={avatarSize} />
+                  <Text style={styles.playerName} numberOfLines={1}>
+                    {player.displayName}
+                  </Text>
+                  {player.isReady ? (
+                    <Text style={styles.readyBadge}>✓ Ready</Text>
+                  ) : (
+                    <Text style={styles.notReadyBadge}>Not ready</Text>
+                  )}
+                  {player.isBot ? <Text style={styles.botBadge}>Bot</Text> : null}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
       </Animated.View>
 
       {isHost ? (
         <Pressable
           disabled={!canStart || updating}
-          style={[styles.primaryButton, (!canStart || updating) && styles.disabledButton]}
+          style={[styles.startButton, (!canStart || updating) && styles.disabledButton]}
           onPress={() => void onStartGame()}
         >
-          <Text style={styles.primaryText}>{updating ? "Starting..." : "Start Game"}</Text>
+          <Text style={styles.startButtonText}>{updating ? "Starting..." : "Start Game"}</Text>
         </Pressable>
       ) : (
         <Pressable
           disabled={updating}
-          style={[styles.primaryButton, updating && styles.disabledButton]}
+          style={[styles.readyButton, updating && styles.disabledButton]}
           onPress={() => void onToggleReady()}
         >
-          <Text style={styles.primaryText}>{myPlayer?.isReady ? "Unready" : "Ready"}</Text>
+          <Text style={styles.readyButtonText}>{myPlayer?.isReady ? "Unready" : "Ready"}</Text>
         </Pressable>
       )}
     </SafeAreaView>
@@ -261,88 +284,167 @@ export default function RoomCodeScreen(): JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
+    padding: 12,
     gap: 10,
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#0f172a",
   },
-  title: {
-    fontSize: 24,
-    fontWeight: "700",
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "#4b5563",
-  },
-  codeRow: {
-    flexDirection: "row",
+  header: {
+    borderRadius: 14,
+    padding: 14,
+    backgroundColor: "rgba(15,23,42,0.92)",
+    borderWidth: 1,
+    borderColor: "#334155",
     alignItems: "center",
     gap: 8,
-    flexWrap: "wrap",
   },
-  codeRowSmall: {
+  headerCompact: {
+    padding: 10,
     gap: 6,
   },
-  codeButton: {
-    borderWidth: 1,
-    borderColor: "#d1d5db",
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+  title: {
+    color: "#f8fafc",
+    fontWeight: "700",
+    fontSize: 20,
   },
-  codeButtonText: {
-    color: "#374151",
+  titleCompact: {
+    fontSize: 18,
+  },
+  roomCode: {
+    fontSize: 34,
+    letterSpacing: 3,
+    fontWeight: "800",
+    color: "#f8fafc",
+  },
+  roomCodeCompact: {
+    fontSize: 30,
+    letterSpacing: 2,
+  },
+  codeActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  codeActionButton: {
+    borderWidth: 1,
+    borderColor: "#475569",
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: "#1e293b",
+  },
+  codeActionText: {
+    color: "#e2e8f0",
     fontWeight: "600",
   },
   countText: {
-    fontWeight: "700",
-    color: "#111827",
-  },
-  playersWrap: {
-    gap: 8,
-    paddingVertical: 8,
+    fontWeight: "800",
+    fontSize: 15,
+    color: "#f8fafc",
   },
   playerListContainer: {
     flex: 1,
+    minHeight: 0,
   },
-  playerRow: {
-    borderRadius: 10,
+  columns: {
+    flexDirection: "row",
+    gap: 10,
+    flex: 1,
+  },
+  columnsCompact: {
+    gap: 8,
+  },
+  teamColumn: {
+    flex: 1,
+    borderRadius: 12,
+    padding: 10,
+    backgroundColor: "rgba(15,23,42,0.7)",
     borderWidth: 1,
+    borderColor: "#334155",
+    minHeight: 0,
+  },
+  teamColumnCompact: {
     padding: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
   },
-  teamA: {
-    borderColor: "#3b82f6",
-    backgroundColor: "#eff6ff",
+  teamTitle: {
+    textAlign: "center",
+    fontWeight: "800",
+    marginBottom: 8,
+    fontSize: 13,
   },
-  teamB: {
-    borderColor: "#ef4444",
-    backgroundColor: "#fef2f2",
+  teamATitle: {
+    color: "#3b82f6",
   },
-  meta: {
-    flexDirection: "row",
+  teamBTitle: {
+    color: "#ef4444",
+  },
+  teamList: {
+    gap: 8,
+  },
+  playerCard: {
+    borderRadius: 12,
+    padding: 8,
     gap: 6,
+    alignItems: "center",
+    borderWidth: 1,
   },
-  badge: {
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    backgroundColor: "#111827",
-    color: "#ffffff",
+  playerCardCompact: {
+    padding: 6,
+    gap: 4,
+  },
+  playerCardA: {
+    borderColor: "#3b82f6",
+    backgroundColor: "rgba(59,130,246,0.14)",
+  },
+  playerCardB: {
+    borderColor: "#ef4444",
+    backgroundColor: "rgba(239,68,68,0.14)",
+  },
+  playerName: {
+    color: "#f8fafc",
+    fontWeight: "600",
     fontSize: 12,
-    overflow: "hidden",
+    textAlign: "center",
   },
-  primaryButton: {
-    borderRadius: 10,
+  readyBadge: {
+    color: "#22c55e",
+    fontWeight: "700",
+    fontSize: 11,
+  },
+  notReadyBadge: {
+    color: "#94a3b8",
+    fontWeight: "600",
+    fontSize: 11,
+  },
+  botBadge: {
+    color: "#f59e0b",
+    fontWeight: "700",
+    fontSize: 11,
+  },
+  readyButton: {
+    borderRadius: 12,
     backgroundColor: "#2563eb",
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 12,
   },
-  primaryText: {
+  readyButtonText: {
     color: "#ffffff",
     fontWeight: "700",
+  },
+  startButton: {
+    borderRadius: 10,
+    backgroundColor: "#f59e0b",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    shadowColor: "#f59e0b",
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  startButtonText: {
+    color: "#111827",
+    fontWeight: "800",
+    fontSize: 16,
   },
   disabledButton: {
     opacity: 0.5,

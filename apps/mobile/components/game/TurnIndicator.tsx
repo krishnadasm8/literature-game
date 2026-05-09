@@ -29,23 +29,35 @@ export function TurnIndicator({ isMyTurn, currentPlayerName }: TurnIndicatorProp
 
   return (
     <Animated.View style={[styles.container, isMyTurn && styles.active, animatedStyle]}>
-      <Text style={styles.text}>{isMyTurn ? "Your turn" : `Waiting for ${currentPlayerName ?? "Unknown"}...`}</Text>
+      <Text style={[styles.text, isMyTurn && styles.activeText]}>
+        {isMyTurn ? "YOUR TURN" : `Waiting for ${currentPlayerName ?? "Unknown"}...`}
+      </Text>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: "#e5e7eb",
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: "rgba(15,23,42,0.55)",
     alignItems: "center",
   },
   active: {
-    backgroundColor: "#dcfce7",
+    backgroundColor: "#f59e0b",
+    shadowColor: "#f59e0b",
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
   },
   text: {
     fontWeight: "600",
+    color: "#d1d5db",
+    fontSize: 13,
+  },
+  activeText: {
     color: "#111827",
+    fontWeight: "800",
   },
 });

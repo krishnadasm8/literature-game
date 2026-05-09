@@ -42,7 +42,10 @@ export function HandView({ hand, playableCards, onCardSelect }: HandViewProps): 
           styles.cardWrap,
           {
             marginLeft: index === 0 ? 0 : overlap,
-            transform: [{ rotate: rotationForIndex(index, total) }],
+            transform: [
+              { rotate: rotationForIndex(index, total) },
+              { translateY: Math.abs(index - (total - 1) / 2) * 1.8 },
+            ],
           },
         ]}
       >
@@ -99,13 +102,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "center",
-    paddingVertical: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
   },
   cardWrap: {
     alignItems: "center",
   },
   scrollContainer: {
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 8,
   },
 });

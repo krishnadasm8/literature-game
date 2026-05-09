@@ -13,15 +13,28 @@ type MoveWithResult = Move & {
   success?: boolean;
 };
 
-const formatMove = (move: MoveWithResult): string => {
+const formatMove = (move: MoveWithResult): { text: string; success: boolean | null; timestamp: string } => {
+  const timestamp = new Date(move.timestamp ?? Date.now()).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
   if (move.type !== "ASK") {
-    return `[${move.playerId}] declared ${move.declaredSet ?? "a set"}`;
+    return {
+      text: `[${move.playerId}] declared ${move.declaredSet ?? "a set"}`,
+      success: null,
+      timestamp,
+    };
   }
 
   const target = move.targetPlayerId ?? "unknown";
   const card = move.card ? cardToString(move.card) : "a card";
   const result = move.success ? "Got it!" : "No luck";
-  return `[${move.playerId}] asked [${target}] for ${card} -> ${result}`;
+  return {
+    text: `[${move.playerId}] asked [${target}] for ${card} -> ${result}`,
+    success: Boolean(move.success),
+    timestamp,
+  };
 };
 
 export function ActionLog({ moves }: ActionLogProps): JSX.Element {
@@ -40,9 +53,18 @@ export function ActionLog({ moves }: ActionLogProps): JSX.Element {
         }}
       >
         {entries.map((entry, index) => (
-          <Text key={`${entry}-${index}`} style={styles.entry}>
-            {entry}
-          </Text>
+          <View key={`${entry.text}-${index}`} style={styles.entryRow}>
+            <Text
+              style={[
+                styles.entry,
+                entry.success === true && styles.success,
+                entry.success === false && styles.failure,
+              ]}
+            >
+              {entry.text}
+            </Text>
+            <Text style={styles.time}>{entry.timestamp}</Text>
+          </View>
         ))}
       </ScrollView>
     </View>
@@ -51,21 +73,37 @@ export function ActionLog({ moves }: ActionLogProps): JSX.Element {
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 10,
-    backgroundColor: "#f9fafb",
-    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(15,23,42,0.55)",
+    padding: 10,
   },
   title: {
     fontWeight: "700",
-    marginBottom: 8,
+    marginBottom: 6,
+    color: "#f8fafc",
+    fontSize: 12,
   },
   scroll: {
-    maxHeight: 120,
+    maxHeight: 80,
   },
   content: {
-    gap: 6,
+    gap: 5,
+  },
+  entryRow: {
+    gap: 2,
   },
   entry: {
-    color: "#374151",
+    color: "#d1d5db",
+    fontSize: 11,
+  },
+  success: {
+    color: "#22c55e",
+  },
+  failure: {
+    color: "#ef4444",
+  },
+  time: {
+    color: "#94a3b8",
+    fontSize: 10,
   },
 });

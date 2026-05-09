@@ -76,7 +76,14 @@ export function CardView({ card, faceUp, selected, playable, onPress }: CardView
     >
       <Animated.View style={animatedStyle}>
         {faceUp ? (
-          <View style={[styles.card, playable && styles.playableCard]}>
+          <View
+            style={[
+              styles.card,
+              playable && styles.playableCard,
+              !playable && styles.nonPlayableCard,
+              selected && styles.selectedCard,
+            ]}
+          >
             <View>
               <Text style={[styles.cornerText, isRedSuit ? styles.red : styles.black]}>{rank}</Text>
               <Text style={[styles.cornerText, isRedSuit ? styles.red : styles.black]}>{symbol}</Text>
@@ -88,8 +95,8 @@ export function CardView({ card, faceUp, selected, playable, onPress }: CardView
             </View>
           </View>
         ) : (
-          <View style={[styles.card, styles.cardBack, playable && styles.playableCard]}>
-            <CardBack width={60} height={90} />
+          <View style={[styles.card, styles.cardBack, selected && styles.selectedCard]}>
+            <CardBack width={52} height={76} />
           </View>
         )}
       </Animated.View>
@@ -102,35 +109,47 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   card: {
-    width: 60,
-    height: 90,
+    width: 52,
+    height: 76,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderWidth: 2,
+    borderColor: "#d4d4d8",
     backgroundColor: "#ffffff",
-    padding: 6,
+    padding: 5,
     justifyContent: "space-between",
+    shadowColor: "#000000",
+    shadowOpacity: 0.24,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
   },
   cardBack: {
     overflow: "hidden",
     padding: 0,
   },
   playableCard: {
-    borderColor: "#60a5fa",
-    shadowColor: "#60a5fa",
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    borderColor: "#22c55e",
+    shadowColor: "#22c55e",
+    shadowOpacity: 0.22,
+    shadowRadius: 5,
     shadowOffset: { width: 0, height: 2 },
   },
+  nonPlayableCard: {
+    borderColor: "#94a3b8",
+    backgroundColor: "#ffffff",
+    shadowOpacity: 0.16,
+  },
+  selectedCard: {
+    borderColor: "#f59e0b",
+  },
   cornerText: {
-    fontSize: 10,
-    fontWeight: "700",
-    lineHeight: 12,
+    fontSize: 9,
+    fontWeight: "800",
+    lineHeight: 11,
   },
   centerSymbol: {
     textAlign: "center",
-    fontSize: 24,
-    fontWeight: "700",
+    fontSize: 22,
+    fontWeight: "800",
   },
   bottomCorner: {
     alignSelf: "flex-end",
