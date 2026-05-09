@@ -58,7 +58,7 @@ export default function GameCodeScreen(): JSX.Element {
   const askSheetY = useSharedValue(300);
   const declareSheetY = useSharedValue(320);
 
-  useGameState();
+  useGameState(code);
 
   useEffect(() => {
     askSheetY.value = withTiming(selectedOpponentId ? 0 : 300, { duration: 220 });

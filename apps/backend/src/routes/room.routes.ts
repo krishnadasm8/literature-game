@@ -337,16 +337,48 @@ router.post("/:code/start", authMiddleware, async (req: AuthenticatedRequest, re
       data: { status: "IN_PROGRESS" },
     });
 
-    emitToRoomNamespace(roomCode, "room:game_starting", {
-      roomCode,
-      gameId: game.id,
-    });
-
     const startedRoom = await getRoomByCode(roomCode);
     if (!startedRoom) {
       res.status(500).json({ error: "Failed to fetch started room." });
       return;
     }
+
+    const orderedPlayers = [...startedRoom.players].sort(
+      (a, b) => a.joinedAt.getTime() - b.joinedAt.getTime(),
+    );
+    const handsSnapshot = ((((startedRoom.game as any)?.handsSnapshot ?? {}) as Record<string, unknown[]>));
+    const fallbackTurnPlayerId = orderedPlayers[0]?.userId ?? "";
+    const gameState = {
+      id: game.id,
+      roomId: startedRoom.id,
+      status: "PLAYING",
+      currentTurnPlayerId: game.currentTurnPlayerId ?? fallbackTurnPlayerId,
+      players: orderedPlayers.map((roomPlayer, index) => ({
+        id: roomPlayer.user.id,
+        displayName: roomPlayer.user.displayName,
+        avatarUrl: roomPlayer.user.avatarUrl ?? "",
+        team: roomPlayer.team ?? TEAM_FOR_SEAT[index],
+        handCount: (handsSnapshot[roomPlayer.user.id] ?? []).length,
+        isBot: roomPlayer.user.googleId.startsWith("bot_"),
+        isConnected: true,
+      })),
+      scores: {
+        TEAM_A: 0,
+        TEAM_B: 0,
+      },
+      books: {
+        TEAM_A: [],
+        TEAM_B: [],
+      },
+      lastMove: undefined,
+      round: 1,
+    };
+
+    emitToRoomNamespace(roomCode, "room:game_starting", {
+      roomCode,
+      gameId: game.id,
+      gameState,
+    });
 
     res.status(200).json({ room: toPublicRoom(startedRoom) });
   } catch (error) {

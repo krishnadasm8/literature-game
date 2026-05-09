@@ -13,12 +13,13 @@ import {
   View,
 } from "react-native";
 
-import { Team } from "@shared/src";
+import { Team, type GameState } from "@shared/src";
 
 import { PlayerSlot } from "../../components/room/PlayerSlot";
 import { getRoom, joinRoom, setReady, startGame } from "../../services/roomService";
 import { socketService } from "../../services/socket";
 import { useAuthStore } from "../../store/authStore";
+import { useGameStore } from "../../store/gameStore";
 import { useRoomStore } from "../../store/roomStore";
 
 export default function RoomCodeScreen(): JSX.Element {
@@ -29,6 +30,8 @@ export default function RoomCodeScreen(): JSX.Element {
   const room = useRoomStore((state) => state.room);
   const players = useRoomStore((state) => state.players);
   const setRoom = useRoomStore((state) => state.setRoom);
+  const setGameState = useGameStore((state) => state.setGameState);
+  const setMyHand = useGameStore((state) => state.setMyHand);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const joinedAnim = useMemo(() => new Animated.Value(0), []);
@@ -109,10 +112,14 @@ export default function RoomCodeScreen(): JSX.Element {
       "/room",
     );
 
-    const offGameStarting = socketService.on<{ roomCode: string }>(
+    const offGameStarting = socketService.on<{ roomCode: string; gameState?: GameState }>(
       "room:game_starting",
       (payload) => {
         if (payload.roomCode?.toUpperCase() === normalizedCode) {
+          if (payload.gameState) {
+            setGameState(payload.gameState);
+            setMyHand([]);
+          }
           router.replace(`/game/${normalizedCode}`);
         }
       },
@@ -129,7 +136,7 @@ export default function RoomCodeScreen(): JSX.Element {
       offGameStarting();
       socket.disconnect();
     };
-  }, [joinedAnim, normalizedCode, router, setRoom]);
+  }, [joinedAnim, normalizedCode, router, setGameState, setMyHand, setRoom]);
 
   const onToggleReady = async (): Promise<void> => {
     if (!room || !myPlayer) {

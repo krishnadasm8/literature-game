@@ -86,6 +86,7 @@ model Game {
   currentTurnPlayer   User?     @relation("CurrentTurnPlayer", fields: [currentTurnPlayerId], references: [id], onDelete: SetNull)
   scores              Json?
   books               Json?
+  handsSnapshot       Json?
   round               Int       @default(1)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
