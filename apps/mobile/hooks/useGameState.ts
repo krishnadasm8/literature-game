@@ -34,6 +34,9 @@ export const useGameState = (roomCode?: string): void => {
 
   useEffect(() => {
     const socket = socketService.connect();
+    if (roomCode) {
+      socketService.emit("game:join", { roomCode });
+    }
 
     const offStateUpdate = socketService.on<{ gameState: GameState; myHand?: Card[] }>(
       "game:state_update",
@@ -70,11 +73,32 @@ export const useGameState = (roomCode?: string): void => {
       }
     });
 
+    const offAskResolved = socketService.on("game:ask_resolved", async () => {
+      if (!roomCode) {
+        return;
+      }
+      try {
+        const room = await getGameState(roomCode);
+        if (room?.gameState) {
+          useGameStore.getState().setGameState(room.gameState);
+        }
+        if (room?.myHand) {
+          useGameStore.getState().setMyHand(room.myHand);
+        }
+      } catch {
+        // Best-effort refresh on ask resolve.
+      }
+    });
+
     return () => {
+      if (roomCode) {
+        socketService.emit("game:leave", { roomCode });
+      }
       offStateUpdate();
       offTurnChanged();
       offGameOver();
+      offAskResolved();
       socket.disconnect();
     };
-  }, [router, setGameState, setMyHand]);
+  }, [roomCode, router, setGameState, setMyHand]);
 };

@@ -22,3 +22,13 @@ export const playCard = async (
 export const forfeit = async (gameId: string): Promise<void> => {
   await api.post(`/games/${gameId}/forfeit`);
 };
+
+export const respondToAsk = async (
+  gameId: string,
+  response: "GIVE" | "NO",
+): Promise<GameStateResponse> => {
+  const result = await api.post<GameStateResponse>(`/games/${gameId}/respond`, {
+    response,
+  });
+  return result.data;
+};

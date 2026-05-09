@@ -6,6 +6,7 @@ import { attachRoomNamespace } from "./room.socket";
 
 let ioInstance: Server | null = null;
 let roomNamespaceInstance: Namespace | null = null;
+let gameNamespaceInstance: Namespace | null = null;
 
 export const initializeSocketServer = (httpServer: HttpServer): Server => {
   const io = new Server(httpServer, {
@@ -17,7 +18,8 @@ export const initializeSocketServer = (httpServer: HttpServer): Server => {
 
   roomNamespaceInstance = io.of("/room");
   attachRoomNamespace(roomNamespaceInstance);
-  attachGameNamespace(io.of("/game"));
+  gameNamespaceInstance = io.of("/game");
+  attachGameNamespace(gameNamespaceInstance);
   ioInstance = io;
 
   return io;
@@ -27,4 +29,8 @@ export const getSocketServer = (): Server | null => ioInstance;
 
 export const emitToRoomNamespace = (roomCode: string, event: string, payload: unknown): void => {
   roomNamespaceInstance?.to(roomCode).emit(event, payload);
+};
+
+export const emitToGameNamespace = (roomCode: string, event: string, payload: unknown): void => {
+  gameNamespaceInstance?.to(roomCode).emit(event, payload);
 };

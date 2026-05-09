@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLocalSearchParams } from "expo-router";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   SafeAreaView,
   StyleSheet,
@@ -11,7 +12,6 @@ import {
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
-  withTiming,
 } from "react-native-reanimated";
 
 import { HalfSuit, MoveType, type Card, type Move, type Player, Team } from "@shared/src";
@@ -22,26 +22,26 @@ import { ScoreBoard } from "../../components/game/ScoreBoard";
 import { TurnIndicator } from "../../components/game/TurnIndicator";
 import { PlayerSlot } from "../../components/room/PlayerSlot";
 import { useGameState } from "../../hooks/useGameState";
-import { playCard } from "../../services/gameService";
+import { playCard, respondToAsk } from "../../services/gameService";
+import { socketService } from "../../services/socket";
 import { useAuthStore } from "../../store/authStore";
 import { useGameStore } from "../../store/gameStore";
 import { getHalfSuit } from "../../utils/cardHelpers";
-
-const HALF_SUIT_OPTIONS: HalfSuit[] = [
-  HalfSuit.LOW_HEARTS,
-  HalfSuit.HIGH_HEARTS,
-  HalfSuit.LOW_DIAMONDS,
-  HalfSuit.HIGH_DIAMONDS,
-  HalfSuit.LOW_CLUBS,
-  HalfSuit.HIGH_CLUBS,
-  HalfSuit.LOW_SPADES,
-  HalfSuit.HIGH_SPADES,
-];
 
 const RANKS_BY_TIER = {
   LOW: ["TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN"],
   HIGH: ["NINE", "TEN", "JACK", "QUEEN", "KING", "ACE"],
 } as const;
+
+interface IncomingAsk {
+  gameId: string;
+  askingPlayerId: string;
+  askingPlayerName: string;
+  targetPlayerId: string;
+  targetPlayerName: string;
+  card: Card;
+  targetHasCard: boolean;
+}
 
 export default function GameCodeScreen(): JSX.Element {
   const { code } = useLocalSearchParams<{ code: string }>();
@@ -53,20 +53,12 @@ export default function GameCodeScreen(): JSX.Element {
   const [selectedHalfSuit, setSelectedHalfSuit] = useState<HalfSuit | null>(null);
   const [moveHistory, setMoveHistory] = useState<Move[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [declareOpen, setDeclareOpen] = useState(false);
-
-  const askSheetY = useSharedValue(300);
-  const declareSheetY = useSharedValue(320);
+  const [incomingAsk, setIncomingAsk] = useState<IncomingAsk | null>(null);
+  const [respondingAsk, setRespondingAsk] = useState(false);
+  const [notificationText, setNotificationText] = useState<string | null>(null);
+  const askSheetY = useSharedValue(0);
 
   useGameState(code);
-
-  useEffect(() => {
-    askSheetY.value = withTiming(selectedOpponentId ? 0 : 300, { duration: 220 });
-  }, [askSheetY, selectedOpponentId]);
-
-  useEffect(() => {
-    declareSheetY.value = withTiming(declareOpen ? 0 : 320, { duration: 220 });
-  }, [declareOpen, declareSheetY]);
 
   useEffect(() => {
     if (gameState?.lastMove) {
@@ -79,11 +71,29 @@ export default function GameCodeScreen(): JSX.Element {
     }
   }, [gameState?.lastMove]);
 
+  useEffect(() => {
+    const offAskRequested = socketService.on<IncomingAsk>("game:ask_requested", (payload) => {
+      if (payload.targetPlayerId === user?.id) {
+        setIncomingAsk(payload);
+      }
+    });
+
+    const offAskResolved = socketService.on<{ message?: string }>("game:ask_resolved", (payload) => {
+      if (payload.message) {
+        setNotificationText(payload.message);
+        setTimeout(() => setNotificationText(null), 2500);
+      }
+      setIncomingAsk(null);
+    });
+
+    return () => {
+      offAskRequested();
+      offAskResolved();
+    };
+  }, [user?.id]);
+
   const askSheetStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: askSheetY.value }],
-  }));
-  const declareSheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: declareSheetY.value }],
   }));
 
   const players = gameState?.players ?? [];
@@ -102,12 +112,11 @@ export default function GameCodeScreen(): JSX.Element {
   }, [myPlayer, players]);
 
   const playableCards = useMemo(() => {
-    if (!selectedOpponentId) {
+    if (!selectedHalfSuit) {
       return [];
     }
-    const halfSuits = new Set(myHand.map((card) => card.halfSuit));
-    return myHand.filter((card) => halfSuits.has(card.halfSuit));
-  }, [myHand, selectedOpponentId]);
+    return myHand.filter((card) => card.halfSuit === selectedHalfSuit);
+  }, [myHand, selectedHalfSuit]);
 
   const askableHalfSuits = useMemo(() => {
     return Array.from(new Set(myHand.map((card) => card.halfSuit)));
@@ -163,6 +172,28 @@ export default function GameCodeScreen(): JSX.Element {
     }
   };
 
+  const respondIncomingAsk = async (): Promise<void> => {
+    if (!incomingAsk) {
+      return;
+    }
+    setRespondingAsk(true);
+    try {
+      const responseChoice: "GIVE" | "NO" = incomingAsk.targetHasCard ? "GIVE" : "NO";
+      const result = await respondToAsk(incomingAsk.gameId, responseChoice);
+      if (result?.gameState) {
+        useGameStore.getState().setGameState(result.gameState);
+      }
+      if (result?.myHand) {
+        useGameStore.getState().setMyHand(result.myHand);
+      }
+      setIncomingAsk(null);
+    } catch (error) {
+      Alert.alert("Ask Response Error", error instanceof Error ? error.message : "Failed to respond.");
+    } finally {
+      setRespondingAsk(false);
+    }
+  };
+
   if (!gameState) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
@@ -182,9 +213,9 @@ export default function GameCodeScreen(): JSX.Element {
             key={player.id}
             player={player as Player}
             selected={selectedOpponentId === player.id}
-            pressable={isMyTurn && player.team !== myPlayer?.team}
+            pressable={isMyTurn && player.team !== myPlayer?.team && Boolean(selectedAskCard)}
             onPress={() => {
-              if (!isMyTurn || player.team === myPlayer?.team) {
+              if (!isMyTurn || player.team === myPlayer?.team || !selectedAskCard) {
                 return;
               }
               setSelectedOpponentId(player.id);
@@ -197,17 +228,23 @@ export default function GameCodeScreen(): JSX.Element {
         <Text style={styles.centerTitle}>Latest Action</Text>
         <Text style={styles.centerAction}>{centerAction}</Text>
       </View>
+      {notificationText ? <Text style={styles.notice}>{notificationText}</Text> : null}
 
       <TurnIndicator isMyTurn={isMyTurn} currentPlayerName={currentTurnName} />
       <ActionLog moves={moveHistory} />
 
       <View style={styles.controls}>
         <Pressable
-          style={[styles.declareButton, (!isMyTurn || submitting) && styles.disabledButton]}
-          disabled={!isMyTurn || submitting}
-          onPress={() => setDeclareOpen(true)}
+          style={[
+            styles.declareButton,
+            (!isMyTurn || submitting || !selectedAskCard || !selectedOpponentId) && styles.disabledButton,
+          ]}
+          disabled={!isMyTurn || submitting || !selectedAskCard || !selectedOpponentId}
+          onPress={() => {
+            void submitAsk();
+          }}
         >
-          <Text style={styles.declareButtonText}>Declare</Text>
+          <Text style={styles.declareButtonText}>{submitting ? "Asking..." : "Ask"}</Text>
         </Pressable>
       </View>
 
@@ -224,13 +261,20 @@ export default function GameCodeScreen(): JSX.Element {
 
       <Animated.View style={[styles.askPanel, askSheetStyle]}>
         <Text style={styles.sheetTitle}>Ask Opponent</Text>
+        <Text style={styles.sheetSubtitle}>
+          1) Pick half-suit  2) Pick card  3) Pick opposite player
+        </Text>
         <Text style={styles.sheetSubtitle}>Selected opponent: {selectedOpponentId ?? "none"}</Text>
         <View style={styles.halfSuitRow}>
           {askableHalfSuits.map((halfSuit) => (
             <Pressable
               key={halfSuit}
               style={[styles.halfSuitChip, selectedHalfSuit === halfSuit && styles.halfSuitChipActive]}
-              onPress={() => setSelectedHalfSuit(halfSuit)}
+              onPress={() => {
+                setSelectedHalfSuit(halfSuit);
+                setSelectedAskCard(null);
+                setSelectedOpponentId(null);
+              }}
             >
               <Text style={styles.halfSuitText}>{halfSuit.replace("_", " ")}</Text>
             </Pressable>
@@ -253,42 +297,38 @@ export default function GameCodeScreen(): JSX.Element {
           ))}
         </View>
         <View style={styles.sheetActions}>
-          <Pressable style={styles.sheetCancel} onPress={() => setSelectedOpponentId(null)}>
-            <Text style={styles.sheetCancelText}>Cancel</Text>
-          </Pressable>
           <Pressable
-            disabled={!selectedOpponentId || !selectedAskCard || submitting}
-            style={[
-              styles.sheetSubmit,
-              (!selectedOpponentId || !selectedAskCard || submitting) && styles.disabledButton,
-            ]}
+            style={styles.sheetCancel}
             onPress={() => {
-              void submitAsk();
+              setSelectedAskCard(null);
+              setSelectedHalfSuit(null);
+              setSelectedOpponentId(null);
             }}
           >
-            <Text style={styles.sheetSubmitText}>{submitting ? "Submitting..." : "Ask"}</Text>
+            <Text style={styles.sheetCancelText}>Cancel</Text>
           </Pressable>
         </View>
       </Animated.View>
 
-      <Animated.View style={[styles.declareSheet, declareSheetStyle]}>
-        <Text style={styles.sheetTitle}>Declaration Sheet</Text>
-        <Text style={styles.sheetSubtitle}>
-          Choose a half-suit to declare.
-        </Text>
-        <View style={styles.halfSuitRow}>
-          {HALF_SUIT_OPTIONS.map((halfSuit) => (
-            <Pressable key={halfSuit} style={styles.halfSuitChip} onPress={() => setSelectedHalfSuit(halfSuit)}>
-              <Text style={styles.halfSuitText}>{halfSuit.replace("_", " ")}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <View style={styles.sheetActions}>
-          <Pressable style={styles.sheetCancel} onPress={() => setDeclareOpen(false)}>
-            <Text style={styles.sheetCancelText}>Close</Text>
+      {incomingAsk ? (
+        <View style={styles.responsePanel}>
+          <Text style={styles.sheetTitle}>Incoming Ask</Text>
+          <Text style={styles.sheetSubtitle}>
+            {incomingAsk.askingPlayerName} asks for {incomingAsk.card.rank} of {incomingAsk.card.suit}
+          </Text>
+          <Pressable
+            style={[styles.responseButton, respondingAsk && styles.disabledButton]}
+            disabled={respondingAsk}
+            onPress={() => {
+              void respondIncomingAsk();
+            }}
+          >
+            <Text style={styles.responseButtonText}>
+              {respondingAsk ? "Sending..." : incomingAsk.targetHasCard ? "Give" : "No"}
+            </Text>
           </Pressable>
         </View>
-      </Animated.View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -329,6 +369,11 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 14,
   },
+  notice: {
+    color: "#1d4ed8",
+    fontWeight: "700",
+    textAlign: "center",
+  },
   controls: {
     alignItems: "center",
   },
@@ -346,18 +391,6 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   askPanel: {
-    position: "absolute",
-    left: 12,
-    right: 12,
-    bottom: 110,
-    backgroundColor: "#ffffff",
-    borderRadius: 12,
-    padding: 12,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: "#d1d5db",
-  },
-  declareSheet: {
     position: "absolute",
     left: 12,
     right: 12,
@@ -433,13 +466,26 @@ const styles = StyleSheet.create({
     color: "#6b7280",
     fontWeight: "600",
   },
-  sheetSubmit: {
-    backgroundColor: "#2563eb",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  responsePanel: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    bottom: 250,
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    gap: 10,
   },
-  sheetSubmitText: {
+  responseButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    backgroundColor: "#0f766e",
+    paddingVertical: 10,
+  },
+  responseButtonText: {
     color: "#ffffff",
     fontWeight: "700",
   },
