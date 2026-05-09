@@ -80,12 +80,61 @@ router.post("/google", async (req, res) => {
   }
 });
 
-router.post("/refresh", (_req, res) => {
-  res.status(501).json({ message: "Not implemented" });
+router.post("/refresh", async (req, res) => {
+  try {
+    const refreshToken = req.body?.refreshToken as string | undefined;
+    if (!refreshToken) {
+      res.status(400).json({ error: "refreshToken is required." });
+      return;
+    }
+
+    const jwtSecret = process.env.JWT_SECRET;
+    const jwtRefreshSecret = process.env.JWT_REFRESH_SECRET;
+    if (!jwtSecret || !jwtRefreshSecret) {
+      res.status(500).json({ error: "JWT secrets are not configured." });
+      return;
+    }
+
+    let payload: jwt.JwtPayload;
+    try {
+      const verified = jwt.verify(refreshToken, jwtRefreshSecret);
+      if (typeof verified === "string") {
+        res.status(401).json({ error: "Invalid refresh token." });
+        return;
+      }
+      payload = verified;
+    } catch {
+      res.status(401).json({ error: "Invalid or expired refresh token." });
+      return;
+    }
+
+    const userId = payload.userId as string | undefined;
+    if (!userId) {
+      res.status(401).json({ error: "Invalid refresh token payload." });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      res.status(401).json({ error: "User no longer exists." });
+      return;
+    }
+
+    const accessToken = jwt.sign({ userId: user.id }, jwtSecret, {
+      expiresIn: "15m",
+    });
+    const nextRefreshToken = jwt.sign({ userId: user.id }, jwtRefreshSecret, {
+      expiresIn: "30d",
+    });
+
+    res.status(200).json({ accessToken, refreshToken: nextRefreshToken });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : "Failed to refresh token." });
+  }
 });
 
 router.post("/logout", (_req, res) => {
-  res.status(501).json({ message: "Not implemented" });
+  res.status(200).json({ ok: true });
 });
 
 export default router;

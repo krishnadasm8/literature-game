@@ -41,3 +41,27 @@ export const timeoutTurn = async (
   );
   return result.data;
 };
+
+export const declareSet = async (
+  gameId: string,
+  halfSuit: Card["halfSuit"],
+): Promise<
+  GameStateResponse & {
+    ok: boolean;
+    success: boolean;
+    scoreDelta: number;
+    declaringTeam: "TEAM_A" | "TEAM_B";
+    newScore: number;
+  }
+> => {
+  const result = await api.post<
+    GameStateResponse & {
+      ok: boolean;
+      success: boolean;
+      scoreDelta: number;
+      declaringTeam: "TEAM_A" | "TEAM_B";
+      newScore: number;
+    }
+  >(`/games/${gameId}/declare`, { halfSuit });
+  return result.data;
+};

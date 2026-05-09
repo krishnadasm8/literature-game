@@ -16,6 +16,7 @@ import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withTiming,
 } from "react-native-reanimated";
 
@@ -24,7 +25,7 @@ import { HalfSuit, MoveType, type Card, type Move, Team } from "@shared/src";
 import { CardView } from "../../components/cards/CardView";
 import { ActionLog } from "../../components/game/ActionLog";
 import { useGameState } from "../../hooks/useGameState";
-import { playCard, respondToAsk, timeoutTurn } from "../../services/gameService";
+import { declareSet, playCard, respondToAsk, timeoutTurn } from "../../services/gameService";
 import { socketService } from "../../services/socket";
 import { useAuthStore } from "../../store/authStore";
 import { useGameStore } from "../../store/gameStore";
@@ -49,6 +50,30 @@ interface IncomingAsk {
 interface PendingOutgoingAsk {
   targetPlayerId: string;
   targetPlayerName: string;
+}
+
+interface DeclarationStartedPayload {
+  gameId: string;
+  declaringPlayerId: string;
+  declaringPlayerName: string;
+  halfSuit: HalfSuit;
+  declaredCardsByPlayer: Array<{
+    playerId: string;
+    playerName: string;
+    cards: Array<Card & { code?: string }>;
+  }>;
+}
+
+interface DeclarationResultPayload {
+  gameId: string;
+  declaringPlayerId: string;
+  declaringPlayerName: string;
+  halfSuit: HalfSuit;
+  success: boolean;
+  scoreDelta: number;
+  declaringTeam: Team;
+  newScore: number;
+  message: string;
 }
 
 const getInitials = (name: string): string =>
@@ -86,13 +111,24 @@ export default function GameCodeScreen(): JSX.Element {
   const [submitting, setSubmitting] = useState(false);
   const [respondingAsk, setRespondingAsk] = useState(false);
   const [askPanelOpen, setAskPanelOpen] = useState(false);
+  const [declarePanelOpen, setDeclarePanelOpen] = useState(false);
+  const [selectedDeclareHalfSuit, setSelectedDeclareHalfSuit] = useState<HalfSuit | null>(null);
+  const [submittingDeclare, setSubmittingDeclare] = useState(false);
+  const [declarationPopup, setDeclarationPopup] = useState<DeclarationStartedPayload | null>(null);
+  const [declarationResultPopup, setDeclarationResultPopup] = useState<DeclarationResultPayload | null>(null);
+  const [declareActionsBlocked, setDeclareActionsBlocked] = useState(false);
   const [askTimeLeft, setAskTimeLeft] = useState(TURN_ASK_TIMEOUT_SECONDS);
 
   const moveExpiryTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timeoutSentForTurnRef = useRef<string | null>(null);
+  const declarationPopupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const declarationResultDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const declarationResultHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const declareActionsBlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const actionSlideY = useSharedValue(12);
   const actionOpacity = useSharedValue(0);
+  const declarationPulse = useSharedValue(0.55);
 
   useGameState(code);
 
@@ -109,6 +145,17 @@ export default function GameCodeScreen(): JSX.Element {
       setNotificationText(null);
       notificationTimerRef.current = null;
     }, 5000);
+  };
+
+  const startDeclareActionCooldown = (): void => {
+    setDeclareActionsBlocked(true);
+    if (declareActionsBlockTimerRef.current) {
+      clearTimeout(declareActionsBlockTimerRef.current);
+    }
+    declareActionsBlockTimerRef.current = setTimeout(() => {
+      setDeclareActionsBlocked(false);
+      declareActionsBlockTimerRef.current = null;
+    }, 15000);
   };
 
   useEffect(() => {
@@ -154,17 +201,75 @@ export default function GameCodeScreen(): JSX.Element {
       setIncomingAsk(null);
       setAskPanelOpen(false);
     });
+    const offDeclarationStarted = socketService.on<DeclarationStartedPayload>("game:declaration_started", (payload) => {
+      if (payload.declaringPlayerId === user?.id) {
+        return;
+      }
+      setDeclarationPopup(payload);
+      if (declarationPopupTimerRef.current) {
+        clearTimeout(declarationPopupTimerRef.current);
+      }
+      declarationPopupTimerRef.current = setTimeout(() => {
+        setDeclarationPopup(null);
+        declarationPopupTimerRef.current = null;
+      }, 15000);
+    });
+    const offDeclarationResult = socketService.on<DeclarationResultPayload>("game:declaration_result", (payload) => {
+      if (payload.declaringPlayerId === user?.id) {
+        return;
+      }
+      if (declarationResultDelayTimerRef.current) {
+        clearTimeout(declarationResultDelayTimerRef.current);
+      }
+      if (declarationResultHideTimerRef.current) {
+        clearTimeout(declarationResultHideTimerRef.current);
+      }
+      declarationResultDelayTimerRef.current = setTimeout(() => {
+        setDeclarationResultPopup(payload);
+        declarationResultDelayTimerRef.current = null;
+        declarationResultHideTimerRef.current = setTimeout(() => {
+          setDeclarationResultPopup(null);
+          declarationResultHideTimerRef.current = null;
+        }, 5000);
+      }, 3000);
+    });
     return () => {
       offAskRequested();
       offAskResolved();
+      offDeclarationStarted();
+      offDeclarationResult();
     };
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!declarationPopup && !declarationResultPopup) {
+      declarationPulse.value = 0.55;
+      return;
+    }
+    declarationPulse.value = withRepeat(
+      withTiming(1, { duration: 900, easing: Easing.inOut(Easing.quad) }),
+      -1,
+      true,
+    );
+  }, [declarationPopup, declarationPulse, declarationResultPopup]);
 
   useEffect(() => {
     return () => {
       Object.values(moveExpiryTimersRef.current).forEach((timer) => clearTimeout(timer));
       if (notificationTimerRef.current) {
         clearTimeout(notificationTimerRef.current);
+      }
+      if (declarationPopupTimerRef.current) {
+        clearTimeout(declarationPopupTimerRef.current);
+      }
+      if (declarationResultDelayTimerRef.current) {
+        clearTimeout(declarationResultDelayTimerRef.current);
+      }
+      if (declarationResultHideTimerRef.current) {
+        clearTimeout(declarationResultHideTimerRef.current);
+      }
+      if (declareActionsBlockTimerRef.current) {
+        clearTimeout(declareActionsBlockTimerRef.current);
       }
     };
   }, []);
@@ -187,8 +292,21 @@ export default function GameCodeScreen(): JSX.Element {
   const selectedOpponentName =
     askableOpponents.find((player) => player.id === selectedOpponentId)?.displayName ?? "none";
   const isAskTimeout = askTimeLeft <= 0;
-  const passedTurnNameFallback = askableOpponents[0]?.displayName ?? "opponent";
-  const displayIsMyTurn = isMyTurn;
+  const passedTurnPlayer = useMemo(() => {
+    const turnPlayer = players.find((player) => player.id === gameState?.currentTurnPlayerId);
+    if (!turnPlayer) {
+      return null;
+    }
+    return players.find((player) => player.team !== turnPlayer.team) ?? null;
+  }, [gameState?.currentTurnPlayerId, players]);
+  const effectiveTurnPlayerId =
+    isAskTimeout && !pendingOutgoingAsk
+      ? passedTurnPlayer?.id ?? gameState?.currentTurnPlayerId
+      : gameState?.currentTurnPlayerId;
+  const effectiveTurnName =
+    players.find((player) => player.id === effectiveTurnPlayerId)?.displayName ?? currentTurnName;
+  const displayIsMyTurn = Boolean(user?.id && effectiveTurnPlayerId === user.id);
+  const canUseTurnButtons = displayIsMyTurn && !pendingOutgoingAsk && !declareActionsBlocked;
 
   const askCardsForHalfSuit = useMemo(() => {
     if (!selectedHalfSuit) {
@@ -206,6 +324,23 @@ export default function GameCodeScreen(): JSX.Element {
       }))
       .filter((card) => !myHand.some((owned) => owned.rank === card.rank && owned.suit === card.suit));
   }, [myHand, selectedHalfSuit]);
+  const declareGroups = useMemo(() => {
+    const grouped = myHand.reduce<Record<HalfSuit, Card[]>>((acc, card) => {
+      const key = card.halfSuit as HalfSuit;
+      if (!acc[key]) {
+        acc[key] = [];
+      }
+      acc[key].push(card);
+      return acc;
+    }, {} as Record<HalfSuit, Card[]>);
+
+    return Object.entries(grouped)
+      .map(([halfSuit, cards]) => ({
+        halfSuit: halfSuit as HalfSuit,
+        cards,
+      }))
+      .sort((a, b) => b.cards.length - a.cards.length);
+  }, [myHand]);
 
   const centerAction = useMemo(() => {
     const latest = moveHistory[moveHistory.length - 1];
@@ -219,7 +354,7 @@ export default function GameCodeScreen(): JSX.Element {
   }, [moveHistory]);
 
   const canSubmitAsk = Boolean(
-    isMyTurn && selectedOpponentId && selectedHalfSuit && selectedAskCard && !submitting,
+    displayIsMyTurn && selectedOpponentId && selectedHalfSuit && selectedAskCard && !submitting,
   );
 
   useEffect(() => {
@@ -260,7 +395,7 @@ export default function GameCodeScreen(): JSX.Element {
   }, [askTimeLeft, gameState?.currentTurnPlayerId, gameState?.id, isMyTurn, pendingOutgoingAsk]);
 
   const submitAsk = async (): Promise<void> => {
-    if (!gameState || !selectedOpponentId || !selectedAskCard || !isMyTurn) {
+    if (!gameState || !selectedOpponentId || !selectedAskCard || !displayIsMyTurn) {
       return;
     }
     const targetName = askableOpponents.find((player) => player.id === selectedOpponentId)?.displayName ?? "opponent";
@@ -282,6 +417,48 @@ export default function GameCodeScreen(): JSX.Element {
       Alert.alert("Ask Error", error instanceof Error ? error.message : "Failed to ask.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const submitDeclare = async (): Promise<void> => {
+    if (!gameState || !selectedDeclareHalfSuit || !displayIsMyTurn) {
+      return;
+    }
+    setSubmittingDeclare(true);
+    try {
+      const result = await declareSet(gameState.id, selectedDeclareHalfSuit);
+      if (result?.gameState) {
+        useGameStore.getState().setGameState(result.gameState);
+      }
+      if (result?.myHand) {
+        useGameStore.getState().setMyHand(result.myHand);
+      }
+      startDeclareActionCooldown();
+      setDeclarePanelOpen(false);
+      setSelectedDeclareHalfSuit(null);
+
+      if (declarationResultHideTimerRef.current) {
+        clearTimeout(declarationResultHideTimerRef.current);
+      }
+      setDeclarationResultPopup({
+        gameId: gameState.id,
+        declaringPlayerId: user?.id ?? "",
+        declaringPlayerName: user?.displayName ?? "You",
+        halfSuit: selectedDeclareHalfSuit,
+        success: result.success,
+        scoreDelta: result.scoreDelta,
+        declaringTeam: result.declaringTeam as Team,
+        newScore: result.newScore,
+        message: result.success ? "Declaration successful! +1 point" : "Declaration failed! -1 point",
+      });
+      declarationResultHideTimerRef.current = setTimeout(() => {
+        setDeclarationResultPopup(null);
+        declarationResultHideTimerRef.current = null;
+      }, 5000);
+    } catch (error) {
+      Alert.alert("Declare Error", error instanceof Error ? error.message : "Failed to declare.");
+    } finally {
+      setSubmittingDeclare(false);
     }
   };
 
@@ -310,6 +487,9 @@ export default function GameCodeScreen(): JSX.Element {
   const animatedActionStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: actionSlideY.value }],
     opacity: actionOpacity.value,
+  }));
+  const declarationGlowStyle = useAnimatedStyle(() => ({
+    opacity: declarationPulse.value,
   }));
 
   if (!gameState) {
@@ -357,7 +537,7 @@ export default function GameCodeScreen(): JSX.Element {
         <View style={styles.playersWrap}>
           {players.map((player) => {
             const isYou = player.id === user?.id;
-            const canOpenAskFromPlayer = isMyTurn && player.id !== user?.id && player.team !== myPlayer?.team;
+            const canOpenAskFromPlayer = canUseTurnButtons && player.id !== user?.id && player.team !== myPlayer?.team;
             return (
               <Pressable
                 key={player.id}
@@ -392,9 +572,9 @@ export default function GameCodeScreen(): JSX.Element {
           <Text style={styles.turnText}>
             {pendingOutgoingAsk
               ? `Waiting for ${pendingOutgoingAsk.targetPlayerName}...`
-              : isMyTurn
+              : displayIsMyTurn
                 ? "YOUR TURN"
-                : `Waiting for ${currentTurnName}'s turn`}
+                : `Waiting for ${effectiveTurnName}'s turn`}
           </Text>
           {notificationText ? <Text style={styles.notice}>{notificationText}</Text> : null}
           {!askPanelOpen && centerAction ? (
@@ -403,21 +583,34 @@ export default function GameCodeScreen(): JSX.Element {
             </Animated.Text>
           ) : null}
           <View style={styles.actionLogWrap}>{moveHistory.length > 0 ? <ActionLog moves={moveHistory} /> : null}</View>
-          {!askPanelOpen && isMyTurn && !pendingOutgoingAsk && !isAskTimeout ? (
+          {!askPanelOpen && canUseTurnButtons ? (
             <View style={styles.askTimerSection}>
-              <Pressable
-                style={styles.openAskButton}
-                onPress={() => {
-                  setAskPanelOpen(true);
-                }}
-              >
-                <Text style={styles.openAskText}>Ask</Text>
-              </Pressable>
+              <View style={styles.turnActionRow}>
+                <Pressable
+                  style={styles.openAskButton}
+                  onPress={() => {
+                    setAskPanelOpen(true);
+                  }}
+                >
+                  <Text style={styles.openAskText}>Ask</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.declareSetButton}
+                  onPress={() => {
+                    setDeclarePanelOpen(true);
+                  }}
+                >
+                  <Text style={styles.declareSetText}>Declare a set</Text>
+                </Pressable>
+              </View>
             </View>
           ) : null}
-          {isAskTimeout && isMyTurn && !pendingOutgoingAsk ? (
+          {displayIsMyTurn && declareActionsBlocked ? (
+            <Text style={styles.timeWarning}>Declaration resolving... actions unlock in 15s.</Text>
+          ) : null}
+          {isAskTimeout && !pendingOutgoingAsk && !displayIsMyTurn ? (
             <Text style={styles.timeWarning}>
-              {`Times up! Now its ${passedTurnNameFallback}'s turn`}
+              {`Times up! Now its ${effectiveTurnName}'s turn`}
             </Text>
           ) : null}
           <View style={styles.myCardsPreviewWrap}>
@@ -509,7 +702,7 @@ export default function GameCodeScreen(): JSX.Element {
                       height={82}
                       selectedLift={14}
                       onPress={() => {
-                        if (!isMyTurn) {
+                        if (!displayIsMyTurn) {
                           return;
                         }
                         setSelectedSourceCardCode(`${item.rank}-${item.suit}`);
@@ -541,7 +734,7 @@ export default function GameCodeScreen(): JSX.Element {
                         height={80}
                         selectedLift={10}
                         onPress={() => {
-                          if (!isMyTurn) {
+                          if (!displayIsMyTurn) {
                             return;
                           }
                           setSelectedAskCard(item);
@@ -595,6 +788,147 @@ export default function GameCodeScreen(): JSX.Element {
               </View>
             </ScrollView>
           </SafeAreaView>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={declarePanelOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setDeclarePanelOpen(false)}
+      >
+        <View style={styles.askOverlay}>
+          <View style={styles.askBackdrop} />
+          <SafeAreaView style={styles.declarePanel}>
+            <View style={styles.declareHeader}>
+              <Text style={styles.askTitle}>Declare a set</Text>
+              <Pressable style={styles.closeButtonHitbox} onPress={() => setDeclarePanelOpen(false)}>
+                <Text style={styles.closeText}>✕</Text>
+              </Pressable>
+            </View>
+            <View style={styles.declareContentInset}>
+              <Text style={styles.askLabel}>Choose one grouped set from your cards:</Text>
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.declareGroupsListContent}
+              >
+                {declareGroups.map((group) => (
+                  <Pressable
+                    key={group.halfSuit}
+                    style={[
+                      styles.declareGroupWrap,
+                      selectedDeclareHalfSuit === group.halfSuit ? styles.declareGroupWrapActive : null,
+                    ]}
+                    onPress={() => setSelectedDeclareHalfSuit(group.halfSuit)}
+                  >
+                    <View style={styles.declareGroupColumn}>
+                      {group.cards.map((card) => (
+                        <View key={`${group.halfSuit}-${card.rank}-${card.suit}`} style={styles.declareGroupCardVertical}>
+                          <CardView
+                            card={card}
+                            faceUp
+                            selected={selectedDeclareHalfSuit === group.halfSuit}
+                            playable={selectedDeclareHalfSuit === group.halfSuit}
+                            width={58}
+                            height={82}
+                            selectedLift={6}
+                          />
+                        </View>
+                      ))}
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+              <View style={styles.askActions}>
+                <Pressable style={styles.cancelButton} onPress={() => setDeclarePanelOpen(false)}>
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.askButton, (!selectedDeclareHalfSuit || submittingDeclare) && styles.askButtonDisabled]}
+                  disabled={!selectedDeclareHalfSuit || submittingDeclare}
+                  onPress={() => {
+                    void submitDeclare();
+                  }}
+                >
+                  <Text style={styles.askButtonText}>{submittingDeclare ? "Declaring..." : "Declare"}</Text>
+                </Pressable>
+              </View>
+            </View>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={Boolean(declarationPopup)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDeclarationPopup(null)}
+      >
+        <View style={styles.declarationOverlay}>
+          <Animated.View style={[styles.declarationGlowLayer, declarationGlowStyle]} />
+          <View style={styles.declarationCard}>
+            <Text style={styles.declarationTitle}>
+              {declarationPopup?.declaringPlayerName} declared a set
+            </Text>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.declarationScrollContent}>
+              {(declarationPopup?.declaredCardsByPlayer ?? []).map((holder) => (
+                <View key={holder.playerId} style={styles.declarationHolderBlock}>
+                  <Text style={styles.declarationHolderName}>{holder.playerName} has:</Text>
+                  <View style={styles.declarationCardsRow}>
+                    {holder.cards.map((card, index) => (
+                      <View key={`${holder.playerId}-${card.rank}-${card.suit}-${index}`} style={styles.declarationCardWrap}>
+                        <CardView card={card} faceUp playable={false} selected={false} width={48} height={70} />
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+            <Pressable
+              style={styles.declarationDismissButton}
+              onPress={() => {
+                setDeclarationPopup(null);
+                if (declarationPopupTimerRef.current) {
+                  clearTimeout(declarationPopupTimerRef.current);
+                  declarationPopupTimerRef.current = null;
+                }
+              }}
+            >
+              <Text style={styles.declarationDismissText}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={Boolean(declarationResultPopup)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDeclarationResultPopup(null)}
+      >
+        <View style={styles.declarationOverlay}>
+          <Animated.View
+            style={[
+              styles.declarationGlowLayer,
+              declarationGlowStyle,
+              declarationResultPopup?.success ? styles.declarationGlowSuccess : styles.declarationGlowFail,
+            ]}
+          />
+          <View style={[styles.declarationCard, declarationResultPopup?.success ? styles.resultSuccess : styles.resultFail]}>
+            <Text style={styles.declarationTitle}>
+              {declarationResultPopup?.success ? "Set Complete!" : "Wrong Declaration"}
+            </Text>
+            <Text style={styles.resultText}>
+              {declarationResultPopup?.declaringPlayerName}: {declarationResultPopup?.message}
+            </Text>
+            <Text style={styles.resultText}>
+              Score change: {declarationResultPopup && declarationResultPopup.scoreDelta > 0 ? "+" : ""}
+              {declarationResultPopup?.scoreDelta}
+            </Text>
+            <Pressable style={styles.declarationDismissButton} onPress={() => setDeclarationResultPopup(null)}>
+              <Text style={styles.declarationDismissText}>Close</Text>
+            </Pressable>
+          </View>
         </View>
       </Modal>
 
@@ -730,6 +1064,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
+  turnActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   timeWarning: {
     color: "#ef4444",
     fontWeight: "900",
@@ -793,11 +1132,73 @@ const styles = StyleSheet.create({
     zIndex: 100,
     overflow: "visible",
   },
+  declarePanel: {
+    marginHorizontal: 10,
+    marginTop: 8,
+    marginBottom: 8,
+    height: "96%",
+    maxHeight: "96%",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+    borderWidth: 1,
+    borderColor: "#334155",
+    backgroundColor: "#1e293b",
+    paddingVertical: 16,
+    paddingHorizontal: 14,
+    gap: 10,
+    overflow: "visible",
+  },
+  declareHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 6,
+    paddingLeft: 6,
+    paddingRight: 8,
+    marginBottom: 2,
+  },
+  declareContentInset: {
+    flex: 1,
+    paddingHorizontal: 8,
+    paddingTop: 4,
+  },
+  declareGroupsListContent: {
+    gap: 8,
+    paddingBottom: 10,
+    paddingHorizontal: 2,
+    overflow: "visible",
+  },
+  declareGroupWrap: {
+    width: "100%",
+    minHeight: 0,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#334155",
+    backgroundColor: "rgba(15,23,42,0.7)",
+    overflow: "visible",
+  },
+  declareGroupWrapActive: {
+    borderColor: "#f59e0b",
+    backgroundColor: "rgba(245,158,11,0.12)",
+  },
+  declareGroupColumn: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  declareGroupCardVertical: {
+    overflow: "visible",
+  },
   askOverlay: {
     flex: 1,
     justifyContent: "flex-end",
-    paddingHorizontal: 4,
-    paddingBottom: 6,
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    paddingBottom: 10,
   },
   askBackdrop: {
     ...StyleSheet.absoluteFillObject,
@@ -864,7 +1265,14 @@ const styles = StyleSheet.create({
     overflow: "visible",
   },
   askCardWrap: { overflow: "visible", paddingBottom: 2 },
-  askActions: { flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 10, paddingBottom: 2 },
+  askActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 12,
+    paddingBottom: 8,
+    paddingHorizontal: 4,
+  },
   cancelButton: {
     borderRadius: 10,
     borderWidth: 1,
@@ -879,6 +1287,19 @@ const styles = StyleSheet.create({
   askButton: { borderRadius: 10, backgroundColor: "#f59e0b", paddingHorizontal: 18, paddingVertical: 9 },
   askButtonDisabled: { opacity: 0.5 },
   askButtonText: { color: "#111827", fontWeight: "800" },
+  declareSetButton: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#f59e0b",
+    backgroundColor: "#0f172a",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  declareSetText: {
+    color: "#f59e0b",
+    fontWeight: "800",
+    fontSize: 13,
+  },
   responsePanel: {
     position: "absolute",
     left: 8,
@@ -903,4 +1324,94 @@ const styles = StyleSheet.create({
   },
   responseButton: { borderRadius: 8, backgroundColor: "#0f766e", alignItems: "center", justifyContent: "center", paddingVertical: 10 },
   responseButtonText: { color: "#fff", fontWeight: "700" },
+  declarationOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(2,6,23,0.8)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+  declarationGlowLayer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(245,158,11,0.2)",
+  },
+  declarationGlowSuccess: {
+    backgroundColor: "rgba(34,197,94,0.2)",
+  },
+  declarationGlowFail: {
+    backgroundColor: "rgba(239,68,68,0.2)",
+  },
+  declarationCard: {
+    width: "100%",
+    maxWidth: 430,
+    maxHeight: "78%",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#334155",
+    backgroundColor: "#1e293b",
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  declarationTitle: {
+    color: "#f8fafc",
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  declarationScrollContent: {
+    paddingBottom: 8,
+    gap: 10,
+  },
+  declarationHolderBlock: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#334155",
+    backgroundColor: "rgba(15,23,42,0.8)",
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    gap: 8,
+  },
+  declarationHolderName: {
+    color: "#cbd5e1",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  declarationCardsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "flex-start",
+    overflow: "visible",
+    paddingTop: 6,
+    minHeight: 78,
+  },
+  declarationCardWrap: {
+    overflow: "visible",
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  declarationDismissButton: {
+    alignSelf: "flex-end",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#f59e0b",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: "rgba(245,158,11,0.14)",
+  },
+  declarationDismissText: {
+    color: "#f8fafc",
+    fontWeight: "800",
+    fontSize: 12,
+  },
+  resultSuccess: {
+    borderColor: "#22c55e",
+  },
+  resultFail: {
+    borderColor: "#ef4444",
+  },
+  resultText: {
+    color: "#e2e8f0",
+    fontWeight: "700",
+    fontSize: 13,
+  },
 });

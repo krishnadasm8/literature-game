@@ -2,7 +2,7 @@ import { Router } from "express";
 import { PrismaClient } from "@prisma/client";
 import type { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { authMiddleware } from "../middleware/auth.middleware";
-import type { Card } from "../engine/deck";
+import { cardToCode, type Card, type HalfSuit } from "../engine/deck";
 import { emitToGameNamespace } from "../sockets";
 import { gameManager } from "../services/gameManager";
 
@@ -18,6 +18,25 @@ type PendingAsk = {
   card: Card;
 };
 const pendingAsks = new Map<string, PendingAsk>();
+const TEAM_BY_SEAT = ["TEAM_A", "TEAM_B", "TEAM_A", "TEAM_B", "TEAM_A", "TEAM_B", "TEAM_A", "TEAM_B"] as const;
+
+const getPlayerTeam = (
+  player: { team: string | null; userId: string },
+  index: number,
+): "TEAM_A" | "TEAM_B" => {
+  if (player.team === "TEAM_A" || player.team === "TEAM_B") {
+    return player.team;
+  }
+  return TEAM_BY_SEAT[index] ?? "TEAM_A";
+};
+
+const removeHalfSuitCards = (handsSnapshot: Record<string, Card[]>, halfSuit: HalfSuit): Record<string, Card[]> => {
+  const next: Record<string, Card[]> = {};
+  for (const [playerId, cards] of Object.entries(handsSnapshot)) {
+    next[playerId] = cards.filter((card) => card.halfSuit !== halfSuit);
+  }
+  return next;
+};
 
 router.get("/:id", authMiddleware, async (req: AuthenticatedRequest, res) => {
   const userId = req.user?.id;
@@ -258,6 +277,165 @@ router.post("/:id/respond", authMiddleware, async (req: AuthenticatedRequest, re
     res.status(200).json(requesterState);
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : "Failed to respond to ask." });
+  }
+});
+
+router.post("/:id/declare", authMiddleware, async (req: AuthenticatedRequest, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const gameId = String(req.params.id);
+    const halfSuit = req.body?.halfSuit as HalfSuit | undefined;
+    if (!halfSuit) {
+      res.status(400).json({ error: "halfSuit is required." });
+      return;
+    }
+
+    const game = await prisma.game.findUnique({
+      where: { id: gameId },
+      include: {
+        room: {
+          include: {
+            players: {
+              include: {
+                user: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!game) {
+      res.status(404).json({ error: "Game not found." });
+      return;
+    }
+
+    if (game.currentTurnPlayerId !== userId) {
+      res.status(400).json({ error: "It is not your turn." });
+      return;
+    }
+
+    const orderedPlayers = [...game.room.players].sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime());
+    const declaringIndex = orderedPlayers.findIndex((player) => player.userId === userId);
+    if (declaringIndex < 0) {
+      res.status(400).json({ error: "Declaring player not found." });
+      return;
+    }
+    const declaringPlayer = orderedPlayers[declaringIndex];
+    const declaringTeam = getPlayerTeam(declaringPlayer, declaringIndex);
+
+    const handsSnapshot = (((game as any).handsSnapshot ?? {}) as Record<string, Card[]>);
+    const halfSuitCardsByPlayer = orderedPlayers
+      .map((player, index) => ({
+        playerId: player.userId,
+        playerName: player.user.displayName,
+        team: getPlayerTeam(player, index),
+        cards: (handsSnapshot[player.userId] ?? []).filter((card) => card.halfSuit === halfSuit),
+      }))
+      .filter((entry) => entry.cards.length > 0);
+
+    const totalHalfSuitCards = halfSuitCardsByPlayer.reduce((sum, entry) => sum + entry.cards.length, 0);
+    const teamOwnedCards = halfSuitCardsByPlayer
+      .filter((entry) => entry.team === declaringTeam)
+      .reduce((sum, entry) => sum + entry.cards.length, 0);
+    const success = totalHalfSuitCards === 6 && teamOwnedCards === 6;
+    const scoreDelta = success ? 1 : -1;
+
+    const currentScores = (game.scores as Record<"TEAM_A" | "TEAM_B", number> | null) ?? {
+      TEAM_A: 0,
+      TEAM_B: 0,
+    };
+    const nextScores = {
+      TEAM_A: currentScores.TEAM_A ?? 0,
+      TEAM_B: currentScores.TEAM_B ?? 0,
+    };
+    nextScores[declaringTeam] = (nextScores[declaringTeam] ?? 0) + scoreDelta;
+
+    const currentBooks = (game.books as Record<string, unknown[]> | null) ?? { TEAM_A: [], TEAM_B: [] };
+    const nextBooks = {
+      TEAM_A: [...(currentBooks.TEAM_A ?? [])],
+      TEAM_B: [...(currentBooks.TEAM_B ?? [])],
+    };
+    if (success) {
+      nextBooks[declaringTeam].push(halfSuit);
+    }
+
+    const nextHands = removeHalfSuitCards(handsSnapshot, halfSuit);
+
+    await prisma.move.create({
+      data: {
+        gameId: game.id,
+        playerId: userId,
+        type: "DECLARE",
+        declaredSet: halfSuit as any,
+      },
+    });
+
+    await prisma.game.update({
+      where: { id: game.id },
+      data: {
+        scores: nextScores as any,
+        books: nextBooks as any,
+        handsSnapshot: nextHands as any,
+        currentTurnPlayerId: userId,
+      } as any,
+    });
+
+    const declaredCardsByPlayer = halfSuitCardsByPlayer.map((entry) => ({
+      playerId: entry.playerId,
+      playerName: entry.playerName,
+      cards: entry.cards.map((card) => ({
+        ...card,
+        code: cardToCode(card),
+      })),
+    }));
+
+    emitToGameNamespace(game.room.roomCode, "game:declaration_started", {
+      gameId: game.id,
+      declaringPlayerId: userId,
+      declaringPlayerName: declaringPlayer.user.displayName,
+      halfSuit,
+      declaredCardsByPlayer,
+    });
+
+    emitToGameNamespace(game.room.roomCode, "game:declaration_result", {
+      gameId: game.id,
+      declaringPlayerId: userId,
+      declaringPlayerName: declaringPlayer.user.displayName,
+      halfSuit,
+      success,
+      scoreDelta,
+      declaringTeam,
+      newScore: nextScores[declaringTeam],
+      message: success ? "Declaration successful! +1 point" : "Declaration failed! -1 point",
+    });
+
+    const updatedState = await gameManager.getGameState({
+      gameIdOrRoomCode: game.id,
+      requestingPlayerId: userId,
+    });
+
+    emitToGameNamespace(game.room.roomCode, "game:state_update", {
+      gameState: updatedState?.gameState,
+    });
+
+    res.status(200).json({
+      ok: true,
+      success,
+      scoreDelta,
+      declaringTeam,
+      newScore: nextScores[declaringTeam],
+      declaredCardsByPlayer,
+      gameState: updatedState?.gameState,
+      myHand: updatedState?.myHand ?? [],
+    });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : "Failed to declare set." });
   }
 });
 
