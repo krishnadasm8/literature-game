@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "Literature",
+    "slug": "literature-card-game",
+    "scheme": "literature",
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-secure-store"
+    ]
+  }
+}

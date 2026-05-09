@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Mirrors shared user type.
+model User {
+  id            String        @id @default(cuid())
+  googleId      String        @unique
+  displayName   String
+  avatarUrl     String?
+  lastActiveAt  DateTime      @default(now())
+  gamesPlayed   Int           @default(0)
+  gamesWon      Int           @default(0)
+  coins         Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  hostedRooms   Room[]        @relation("RoomHost")
+  roomPlayers   RoomPlayer[]
+  moves         Move[]        @relation("MovePlayer")
+  targetedMoves Move[]        @relation("MoveTargetPlayer")
+  currentTurns  Game[]        @relation("CurrentTurnPlayer")
+  transactions  Transaction[]
+}
+
+// Mirrors shared room status.
+enum RoomStatus {
+  WAITING
+  STARTING
+  IN_PROGRESS
+  FINISHED
+}
+
+// Mirrors shared team enum.
+enum Team {
+  TEAM_A
+  TEAM_B
+}
+
+model Room {
+  id                 String       @id @default(cuid())
+  roomCode           String       @unique
+  hostId             String
+  host               User         @relation("RoomHost", fields: [hostId], references: [id], onDelete: Cascade)
+  status             RoomStatus   @default(WAITING)
+  maxPlayers         Int
+  turnTimeoutSeconds Int          @default(30)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  players            RoomPlayer[]
+  game               Game?
+}
+
+model RoomPlayer {
+  id       String   @id @default(cuid())
+  roomId   String
+  userId   String
+  team     Team?
+  isReady  Boolean  @default(false)
+  joinedAt DateTime @default(now())
+  room     Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@index([userId])
+}
+
+// Mirrors shared game status.
+enum GameStatus {
+  WAITING
+  PLAYING
+  FINISHED
+}
+
+model Game {
+  id                  String    @id @default(cuid())
+  roomId              String    @unique
+  room                Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  status              GameStatus @default(WAITING)
+  currentTurnPlayerId String?
+  currentTurnPlayer   User?     @relation("CurrentTurnPlayer", fields: [currentTurnPlayerId], references: [id], onDelete: SetNull)
+  scores              Json?
+  books               Json?
+  round               Int       @default(1)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  moves               Move[]
+}
+
+// Mirrors shared move type.
+enum MoveType {
+  ASK
+  DECLARE
+  FORFEIT
+}
+
+// Mirrors shared card enums.
+enum Suit {
+  HEARTS
+  DIAMONDS
+  CLUBS
+  SPADES
+}
+
+enum Rank {
+  TWO
+  THREE
+  FOUR
+  FIVE
+  SIX
+  SEVEN
+  NINE
+  TEN
+  JACK
+  QUEEN
+  KING
+  ACE
+}
+
+enum HalfSuit {
+  LOW_HEARTS
+  HIGH_HEARTS
+  LOW_DIAMONDS
+  HIGH_DIAMONDS
+  LOW_CLUBS
+  HIGH_CLUBS
+  LOW_SPADES
+  HIGH_SPADES
+}
+
+model Move {
+  id             String    @id @default(cuid())
+  gameId         String
+  playerId       String
+  targetPlayerId String?
+  type           MoveType
+  cardSuit       Suit?
+  cardRank       Rank?
+  cardHalfSuit   HalfSuit?
+  declaredSet    HalfSuit?
+  timestamp      DateTime  @default(now())
+  game           Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  player         User      @relation("MovePlayer", fields: [playerId], references: [id], onDelete: Cascade)
+  targetPlayer   User?     @relation("MoveTargetPlayer", fields: [targetPlayerId], references: [id], onDelete: SetNull)
+
+  @@index([gameId])
+  @@index([playerId])
+  @@index([targetPlayerId])
+}
+
+enum TransactionType {
+  EARN
+  SPEND
+}
+
+model Transaction {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        TransactionType
+  amount      Int
+  description String
+  referenceId String?
+  createdAt   DateTime        @default(now())
+
+  @@index([userId])
+}

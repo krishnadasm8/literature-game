@@ -1,0 +1,14 @@
+{
+  "name": "literature-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:mobile": "npm --workspace apps/mobile run start",
+    "dev:backend": "npm --workspace apps/backend run dev",
+    "build:shared": "npm --workspace packages/shared run build"
+  }
+}

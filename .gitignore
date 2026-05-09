@@ -1,0 +1,3 @@
+.env
+apps/**/.env
+node_modules/
