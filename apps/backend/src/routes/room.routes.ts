@@ -160,9 +160,14 @@ router.post("/:code/join", authMiddleware, async (req: AuthenticatedRequest, res
         data: {
           roomId: room.id,
           userId,
-          isReady: false,
+          isReady: room.hostId === userId,
           team: TEAM_FOR_SEAT[seatIndex],
         },
+      });
+    } else if (room.hostId === userId && !existing.isReady) {
+      await prisma.roomPlayer.update({
+        where: { id: existing.id },
+        data: { isReady: true },
       });
     }
 

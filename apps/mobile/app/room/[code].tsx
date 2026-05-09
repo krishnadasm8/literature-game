@@ -115,7 +115,6 @@ export default function RoomCodeScreen(): JSX.Element {
 
     return () => {
       mounted = false;
-      socketService.emit("room:leave", { roomCode: normalizedCode }, "/room");
       offPlayerJoined();
       offPlayerLeft();
       offGameStarting();

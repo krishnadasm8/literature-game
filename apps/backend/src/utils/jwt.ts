@@ -1,7 +1,8 @@
 import jwt, { type JwtPayload, type Secret, type SignOptions } from "jsonwebtoken";
 
 type TokenPayload = JwtPayload & {
-  sub: string;
+  sub?: string;
+  userId?: string;
 };
 
 const getSecret = (key: "JWT_SECRET" | "JWT_REFRESH_SECRET"): Secret => {
@@ -30,8 +31,16 @@ export const signRefreshToken = (userId: string): string => {
 
 export const verifyToken = (token: string, secret: Secret = getSecret("JWT_SECRET")): TokenPayload => {
   const decoded = jwt.verify(token, secret);
-  if (typeof decoded === "string" || !decoded.sub) {
+  if (typeof decoded === "string") {
     throw new Error("Invalid token payload");
   }
-  return decoded as TokenPayload;
+  const userId = decoded.userId ?? decoded.sub;
+  if (!userId) {
+    throw new Error("Invalid token payload");
+  }
+  return {
+    ...decoded,
+    userId,
+    sub: decoded.sub ?? userId,
+  } as TokenPayload;
 };

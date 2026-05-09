@@ -1,19 +1,41 @@
 import React, { useMemo, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, ToastAndroid, View } from "react-native";
+import {
+  Alert,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  ToastAndroid,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
 
-import { createRoom, joinRoom } from "../../services/roomService";
+import { api } from "../../services/api";
+import { useAuthStore } from "../../store/authStore";
+
+interface RoomApiResponse {
+  room: {
+    roomCode: string;
+  };
+  roomCode?: string;
+}
 
 export default function LobbyScreen(): JSX.Element {
   const router = useRouter();
+  const accessToken = useAuthStore((state) => state.accessToken);
   const [maxPlayers, setMaxPlayers] = useState<4 | 6 | 8>(6);
   const [roomCode, setRoomCode] = useState("");
   const [loadingCreate, setLoadingCreate] = useState(false);
   const [loadingJoin, setLoadingJoin] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [createdRoomCode, setCreatedRoomCode] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const canJoin = useMemo(() => roomCode.length === 6, [roomCode.length]);
 
   const showError = (message: string): void => {
+    setErrorMessage(message);
     if (ToastAndroid) {
       ToastAndroid.show(message, ToastAndroid.SHORT);
       return;
@@ -23,9 +45,18 @@ export default function LobbyScreen(): JSX.Element {
 
   const onCreate = async (): Promise<void> => {
     setLoadingCreate(true);
+    setErrorMessage(null);
     try {
-      const response = await createRoom(maxPlayers);
-      router.push(`/room/${response.roomCode ?? response.room.roomCode}`);
+      const response = await api.post<RoomApiResponse>(
+        "/rooms",
+        { maxPlayers },
+        {
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+        },
+      );
+      const code = response.data.roomCode ?? response.data.room.roomCode;
+      setCreatedRoomCode(code);
+      setShowCreateModal(true);
     } catch (error) {
       showError(error instanceof Error ? error.message : "Could not create room.");
     } finally {
@@ -40,8 +71,11 @@ export default function LobbyScreen(): JSX.Element {
       return;
     }
     setLoadingJoin(true);
+    setErrorMessage(null);
     try {
-      await joinRoom(code);
+      await api.get<RoomApiResponse>(`/rooms/${code}`, {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      });
       router.push(`/room/${code}`);
     } catch (error) {
       showError(error instanceof Error ? error.message : "Could not join room.");
@@ -97,6 +131,34 @@ export default function LobbyScreen(): JSX.Element {
           <Text style={styles.primaryButtonText}>{loadingJoin ? "Joining..." : "Join"}</Text>
         </Pressable>
       </View>
+
+      {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+
+      <Modal
+        visible={showCreateModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCreateModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Room Created</Text>
+            <Text style={styles.modalCode}>{createdRoomCode}</Text>
+            <Pressable
+              style={styles.primaryButton}
+              onPress={() => {
+                if (!createdRoomCode) {
+                  return;
+                }
+                setShowCreateModal(false);
+                router.push(`/room/${createdRoomCode}`);
+              }}
+            >
+              <Text style={styles.primaryButtonText}>Enter Room</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -167,5 +229,36 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.5,
+  },
+  errorText: {
+    color: "#dc2626",
+    fontSize: 13,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 320,
+    borderRadius: 12,
+    padding: 16,
+    backgroundColor: "#ffffff",
+    gap: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  modalCode: {
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: 2,
+    color: "#2563eb",
+    textAlign: "center",
   },
 });

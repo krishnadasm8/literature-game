@@ -11,7 +11,7 @@ export const attachRoomNamespace = (namespace: Namespace): void => {
     if (rawToken) {
       try {
         const decoded = verifyToken(rawToken);
-        userId = decoded.sub;
+        userId = decoded.userId ?? decoded.sub ?? null;
       } catch {
         socket.emit("room:error", { message: "Invalid auth token." });
       }
@@ -60,13 +60,7 @@ export const attachRoomNamespace = (namespace: Namespace): void => {
     });
 
     socket.on("disconnect", () => {
-      const joinedRooms = socketRooms.get(socket.id) ?? new Set<string>();
-      for (const roomCode of joinedRooms) {
-        socket.to(roomCode).emit("room:player_left", {
-          roomCode,
-          playerId: userId,
-        });
-      }
+      // Do not emit room:player_left on transient disconnects (e.g. refresh/reconnect).
       socketRooms.delete(socket.id);
     });
   });
