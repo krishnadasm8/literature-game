@@ -229,6 +229,11 @@ export default function GameCodeScreen(): JSX.Element {
         card: selectedAskCard,
       });
       showNotification(`Ask sent to ${targetName}`);
+      setAskPanelOpen(false);
+      setSelectedOpponentId(null);
+      setSelectedHalfSuit(null);
+      setSelectedSourceCardCode(null);
+      setSelectedAskCard(null);
     } catch (error) {
       setPendingOutgoingAsk(null);
       Alert.alert("Ask Error", error instanceof Error ? error.message : "Failed to ask.");
@@ -351,7 +356,7 @@ export default function GameCodeScreen(): JSX.Element {
             </Animated.Text>
           ) : null}
           <View style={styles.actionLogWrap}>{moveHistory.length > 0 ? <ActionLog moves={moveHistory} /> : null}</View>
-          {!askPanelOpen && isMyTurn ? (
+          {!askPanelOpen && isMyTurn && !pendingOutgoingAsk ? (
             <Pressable style={styles.openAskButton} onPress={() => setAskPanelOpen(true)}>
               <Text style={styles.openAskText}>Ask</Text>
             </Pressable>
@@ -380,6 +385,25 @@ export default function GameCodeScreen(): JSX.Element {
               )}
             />
           </View>
+          {incomingAsk ? (
+            <View style={styles.responsePanelInline}>
+              <Text style={styles.askTitle}>Incoming Ask</Text>
+              <Text style={styles.askLabel}>
+                {incomingAsk.askingPlayerName} asks for {incomingAsk.card.rank} of {incomingAsk.card.suit}
+              </Text>
+              <Pressable
+                style={[styles.responseButton, respondingAsk && styles.askButtonDisabled]}
+                disabled={respondingAsk}
+                onPress={() => {
+                  void respondIncomingAsk();
+                }}
+              >
+                <Text style={styles.responseButtonText}>
+                  {respondingAsk ? "Sending..." : incomingAsk.targetHasCard ? "Give" : "No"}
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
       </View>
 
@@ -458,7 +482,7 @@ export default function GameCodeScreen(): JSX.Element {
                         height={80}
                         selectedLift={10}
                         onPress={() => {
-                          if (!isMyTurn || !selectedOpponentId) {
+                          if (!isMyTurn) {
                             return;
                           }
                           setSelectedAskCard(item);
@@ -515,25 +539,6 @@ export default function GameCodeScreen(): JSX.Element {
         </View>
       </Modal>
 
-      {incomingAsk ? (
-        <View style={styles.responsePanel}>
-          <Text style={styles.askTitle}>Incoming Ask</Text>
-          <Text style={styles.askLabel}>
-            {incomingAsk.askingPlayerName} asks for {incomingAsk.card.rank} of {incomingAsk.card.suit}
-          </Text>
-          <Pressable
-            style={[styles.responseButton, respondingAsk && styles.askButtonDisabled]}
-            disabled={respondingAsk}
-            onPress={() => {
-              void respondIncomingAsk();
-            }}
-          >
-            <Text style={styles.responseButtonText}>
-              {respondingAsk ? "Sending..." : incomingAsk.targetHasCard ? "Give" : "No"}
-            </Text>
-          </Pressable>
-        </View>
-      ) : null}
     </SafeAreaView>
   );
 }
@@ -773,7 +778,7 @@ const styles = StyleSheet.create({
     overflow: "visible",
   },
   askCardWrap: { overflow: "visible", paddingBottom: 2 },
-  askActions: { flexDirection: "row", justifyContent: "flex-end", gap: 10 },
+  askActions: { flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 10, paddingBottom: 2 },
   cancelButton: {
     borderRadius: 10,
     borderWidth: 1,
@@ -800,6 +805,15 @@ const styles = StyleSheet.create({
     padding: 10,
     gap: 8,
     zIndex: 120,
+  },
+  responsePanelInline: {
+    marginTop: 10,
+    borderRadius: 12,
+    backgroundColor: "rgba(2,6,23,0.95)",
+    borderWidth: 1,
+    borderColor: "#22c55e",
+    padding: 10,
+    gap: 8,
   },
   responseButton: { borderRadius: 8, backgroundColor: "#0f766e", alignItems: "center", justifyContent: "center", paddingVertical: 10 },
   responseButtonText: { color: "#fff", fontWeight: "700" },
