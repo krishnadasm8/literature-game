@@ -1,5 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import {
@@ -27,15 +35,19 @@ export default function SignInScreen(): JSX.Element {
     [],
   );
 
+  // Use different config for Android vs Web
+  const isAndroid = Platform.OS === "android";
+
   const [request, response, promptAsync] = Google.useAuthRequest({
-    clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
-    androidClientId:
-      process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID ??
-      process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+    clientId: isAndroid
+      ? process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID
+      : process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+    androidClientId: process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID,
     iosClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
     webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
     scopes: ["openid", "profile", "email"],
-    responseType: ResponseType.IdToken,
+    // Remove responseType for Android — default code flow works with Android client ID
+    ...(isAndroid ? {} : { responseType: ResponseType.IdToken }),
     redirectUri,
   });
 
@@ -50,17 +62,16 @@ export default function SignInScreen(): JSX.Element {
         response.params?.id_token ??
         null;
 
-      const accessToken =
-        response.authentication?.accessToken ??
-        (typeof response.params?.access_token === "string"
-          ? response.params.access_token
-          : null);
+      const accessToken = response.authentication?.accessToken ?? null;
 
-      // Try idToken first, fall back to accessToken
+      console.log("Auth response type:", response.type);
+      console.log("Has idToken:", !!idToken);
+      console.log("Has accessToken:", !!accessToken);
+
       const tokenToSend = idToken ?? accessToken;
 
       if (!tokenToSend) {
-        setError("Google did not return a token.");
+        setError(`No token received. Platform: ${Platform.OS}`);
         return;
       }
 
