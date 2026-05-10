@@ -20,6 +20,7 @@ import { socketService } from "../../services/socket";
 import { useAuthStore } from "../../store/authStore";
 import { useGameStore } from "../../store/gameStore";
 import { type RoomMember, useRoomStore } from "../../store/roomStore";
+import { formatDisplayName } from "../../utils/nameHelpers";
 
 const getInitials = (name: string): string =>
   name
@@ -326,10 +327,10 @@ function PlayerSlotCard({
   return (
     <View style={[styles.playerCard, { borderColor: teamColor }]}>
       <View style={[styles.avatarCircle, { backgroundColor: teamColor }]}>
-        <Text style={styles.avatarInitials}>{getInitials(player.displayName)}</Text>
+        <Text style={styles.avatarInitials}>{getInitials(formatDisplayName(player.displayName))}</Text>
       </View>
       <Text style={styles.playerName} numberOfLines={1}>
-        {player.displayName}
+        {formatDisplayName(player.displayName)}
       </Text>
       <Text style={player.isReady ? styles.readyText : styles.notReadyText}>
         {player.isReady ? "✓" : "○"} {player.isReady ? "Ready" : "Not ready"}

@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
 
 import { useAuthStore } from "../../store/authStore";
+import { formatDisplayName } from "../../utils/nameHelpers";
 
 const COLORS = {
   bg: "#0f172a",
@@ -27,6 +28,7 @@ const getInitials = (name: string): string =>
 export default function HomeScreen(): JSX.Element {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
+  const displayName = formatDisplayName(user?.displayName);
 
   const gamesPlayed = user?.gamesPlayed ?? 0;
   const wins = user?.gamesWon ?? 0;
@@ -44,10 +46,10 @@ export default function HomeScreen(): JSX.Element {
           </View>
           <View style={styles.greetingWrap}>
             <View style={styles.avatarCircle}>
-              <Text style={styles.avatarText}>{getInitials(user?.displayName ?? "Player")}</Text>
+              <Text style={styles.avatarText}>{getInitials(displayName)}</Text>
             </View>
             <Text style={styles.greeting} numberOfLines={1}>
-              Hello, {user?.displayName ?? "Player"}!
+              Hello, {displayName}!
             </Text>
           </View>
         </View>

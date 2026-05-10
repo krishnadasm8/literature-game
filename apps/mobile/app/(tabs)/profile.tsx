@@ -3,6 +3,7 @@ import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput
 import { StatusBar } from "expo-status-bar";
 
 import { useAuth } from "../../hooks/useAuth";
+import { formatDisplayName, isValidDisplayName } from "../../utils/nameHelpers";
 
 const getInitials = (name: string): string =>
   name
@@ -21,7 +22,8 @@ const ACHIEVEMENTS = [
 export default function ProfileScreen(): JSX.Element {
   const { user, signOut } = useAuth();
   const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState(user?.displayName ?? "Player");
+  const [nameDraft, setNameDraft] = useState(formatDisplayName(user?.displayName));
+  const [nameError, setNameError] = useState<string | null>(null);
 
   const stats = useMemo(
     () => [
@@ -46,6 +48,20 @@ export default function ProfileScreen(): JSX.Element {
     ]);
   };
 
+  const onChangeName = (value: string): void => {
+    const nextValue = formatDisplayName(value);
+    setNameDraft(nextValue);
+    setNameError(null);
+  };
+
+  const onNameBlur = (): void => {
+    if (!isValidDisplayName(nameDraft)) {
+      setNameError("Use 1-15 letters/numbers.");
+      setNameDraft(formatDisplayName(nameDraft));
+    }
+    setEditingName(false);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
@@ -57,10 +73,12 @@ export default function ProfileScreen(): JSX.Element {
           {editingName ? (
             <TextInput
               value={nameDraft}
-              onChangeText={setNameDraft}
+              onChangeText={onChangeName}
               style={styles.nameInput}
               autoFocus
-              onBlur={() => setEditingName(false)}
+              maxLength={15}
+              autoCapitalize="characters"
+              onBlur={onNameBlur}
             />
           ) : (
             <View style={styles.nameRow}>
@@ -71,6 +89,7 @@ export default function ProfileScreen(): JSX.Element {
             </View>
           )}
           <Text style={styles.email}>google-user@literature.app</Text>
+          {nameError ? <Text style={styles.nameError}>{nameError}</Text> : null}
           <Pressable style={styles.editButton} onPress={() => setEditingName((v) => !v)}>
             <Text style={styles.editButtonText}>Edit Name</Text>
           </Pressable>
@@ -140,6 +159,7 @@ const styles = StyleSheet.create({
   avatarText: { color: "#f1f5f9", fontSize: 26, fontWeight: "900" },
   nameRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   name: { color: "#f1f5f9", fontSize: 22, fontWeight: "800" },
+  nameError: { color: "#ef4444", fontSize: 12, fontWeight: "700" },
   editIcon: { color: "#f59e0b", fontSize: 16 },
   email: { color: "#94a3b8", fontSize: 13 },
   nameInput: {

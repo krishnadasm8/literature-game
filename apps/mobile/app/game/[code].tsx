@@ -31,6 +31,7 @@ import { socketService } from "../../services/socket";
 import { useAuthStore } from "../../store/authStore";
 import { useGameStore } from "../../store/gameStore";
 import { cardToCode, getHalfSuit, getHalfSuitCards } from "../../utils/cardHelpers";
+import { formatDisplayName } from "../../utils/nameHelpers";
 
 const RANKS_BY_TIER = {
   LOW: ["TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN"],
@@ -520,7 +521,7 @@ export default function GameCodeScreen(): JSX.Element {
   const teamAScore = gameState?.scores?.[Team.TEAM_A] ?? 0;
   const teamBScore = gameState?.scores?.[Team.TEAM_B] ?? 0;
   const currentTurnName =
-    players.find((player) => player.id === gameState?.currentTurnPlayerId)?.displayName ?? "Unknown";
+    formatDisplayName(players.find((player) => player.id === gameState?.currentTurnPlayerId)?.displayName ?? "Unknown");
 
   const askableOpponents = useMemo(() => {
     if (!myPlayer) {
@@ -532,11 +533,11 @@ export default function GameCodeScreen(): JSX.Element {
   }, [myPlayer, players]);
 
   const selectedOpponentName =
-    askableOpponents.find((player) => player.id === selectedOpponentId)?.displayName ?? "none";
+    formatDisplayName(askableOpponents.find((player) => player.id === selectedOpponentId)?.displayName ?? "none");
   const isTurnTimerHidden = askPendingGlobal || declareTimerPaused;
   const effectiveTurnPlayerId = gameState?.currentTurnPlayerId;
   const effectiveTurnName =
-    players.find((player) => player.id === effectiveTurnPlayerId)?.displayName ?? currentTurnName;
+    formatDisplayName(players.find((player) => player.id === effectiveTurnPlayerId)?.displayName ?? currentTurnName);
   const displayIsMyTurn = Boolean(user?.id && effectiveTurnPlayerId === user.id);
   const canUseTurnButtons =
     displayIsMyTurn &&
@@ -632,8 +633,8 @@ export default function GameCodeScreen(): JSX.Element {
             candidate.id !== player.id &&
             candidate.handCount > 0,
         );
-        const passMessage = `${player.displayName ?? "Player"} has no more cards${
-          teammate ? ` — turn passes to ${teammate.displayName}` : ""
+        const passMessage = `${formatDisplayName(player.displayName)} has no more cards${
+          teammate ? ` — turn passes to ${formatDisplayName(teammate.displayName)}` : ""
         }`;
         if (player.id === user?.id) {
           if (suppressNextSelfOutOfCardsPopupRef.current) {
@@ -829,10 +830,10 @@ export default function GameCodeScreen(): JSX.Element {
                 }}
               >
                 <View style={styles.avatarCircle}>
-                  <Text style={styles.avatarText}>{getInitials(player.displayName)}</Text>
+                  <Text style={styles.avatarText}>{getInitials(formatDisplayName(player.displayName))}</Text>
                 </View>
                 <Text style={styles.playerName} numberOfLines={1}>
-                  {player.displayName ?? "Player"}
+                  {formatDisplayName(player.displayName)}
                 </Text>
                 <Text style={styles.playerCount}>{player.handCount} cards</Text>
                 {isYou ? <Text style={styles.youLabel}>You</Text> : null}
@@ -845,7 +846,7 @@ export default function GameCodeScreen(): JSX.Element {
           {!(displayIsMyTurn && isSpectator) ? (
             <Text style={styles.turnText}>
               {pendingOutgoingAsk
-                ? `Waiting for ${pendingOutgoingAsk.targetPlayerName}...`
+                ? `Waiting for ${formatDisplayName(pendingOutgoingAsk.targetPlayerName)}...`
                 : displayIsMyTurn
                   ? "YOUR TURN"
                   : `Waiting for ${effectiveTurnName}'s turn`}
@@ -916,7 +917,7 @@ export default function GameCodeScreen(): JSX.Element {
             <View style={styles.responsePanelInline}>
               <Text style={styles.askTitle}>Incoming Ask</Text>
               <Text style={styles.askLabel}>
-                {incomingAsk.askingPlayerName} asks for {incomingAsk.card.rank} of {incomingAsk.card.suit}
+                {formatDisplayName(incomingAsk.askingPlayerName)} asks for {incomingAsk.card.rank} of {incomingAsk.card.suit}
               </Text>
               <Pressable
                 style={[styles.responseButton, respondingAsk && styles.askButtonDisabled]}
@@ -1065,7 +1066,7 @@ export default function GameCodeScreen(): JSX.Element {
                     ]}
                     onPress={() => setSelectedOpponentId(item.id)}
                   >
-                    <Text style={styles.opponentText}>{item.displayName}</Text>
+                    <Text style={styles.opponentText}>{formatDisplayName(item.displayName)}</Text>
                   </Pressable>
                 )}
               />
@@ -1225,7 +1226,7 @@ export default function GameCodeScreen(): JSX.Element {
               Declaration Alert
             </Text>
             <Text style={styles.declarationAlertSubTitle}>
-              {declarationPopup?.declaringPlayerName} declared a set
+              {formatDisplayName(declarationPopup?.declaringPlayerName)} declared a set
             </Text>
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.declarationScrollContent}>
               {(declarationPopup?.declaredCardsByPlayer ?? []).map((holder) => (
@@ -1356,7 +1357,7 @@ export default function GameCodeScreen(): JSX.Element {
             {askAnnouncementPopup ? (
               <View style={styles.askAnnouncementBody}>
                 <View style={styles.askAnnouncementLine}>
-                  <Text style={styles.askAnnouncementTextStrong}>{askAnnouncementPopup.actorName}</Text>
+                  <Text style={styles.askAnnouncementTextStrong}>{formatDisplayName(askAnnouncementPopup.actorName)}</Text>
                   <Text style={styles.askAnnouncementText}>
                     {askAnnouncementPopup.kind === "ASK_REQUESTED"
                       ? " asked for"
@@ -1378,8 +1379,8 @@ export default function GameCodeScreen(): JSX.Element {
                 <View style={styles.askAnnouncementLine}>
                   <Text style={styles.askAnnouncementText}>
                     {askAnnouncementPopup.kind === "ASK_REQUESTED"
-                      ? `from ${askAnnouncementPopup.targetName}`
-                      : `to ${askAnnouncementPopup.targetName}`}
+                      ? `from ${formatDisplayName(askAnnouncementPopup.targetName)}`
+                      : `to ${formatDisplayName(askAnnouncementPopup.targetName)}`}
                   </Text>
                 </View>
               </View>
@@ -1427,7 +1428,7 @@ export default function GameCodeScreen(): JSX.Element {
           >
             <Text style={styles.askResultIcon}>{lastAskResult?.targetHadCard ? "✅" : "❌"}</Text>
             <Text style={styles.askResultMeta}>
-              {lastAskResult?.askingPlayerName ?? "Player"} asked {lastAskResult?.targetPlayerName ?? "Player"}
+              {formatDisplayName(lastAskResult?.askingPlayerName)} asked {formatDisplayName(lastAskResult?.targetPlayerName)}
             </Text>
             {lastAskResult?.card ? <CardDisplay card={lastAskResult.card} size="large" /> : null}
             <Text
@@ -1437,14 +1438,14 @@ export default function GameCodeScreen(): JSX.Element {
               ]}
             >
               {lastAskResult?.targetHadCard
-                ? `${lastAskResult.targetPlayerName ?? "Player"} gave it!`
-                : `${lastAskResult?.targetPlayerName ?? "Player"} said No!`}
+                ? `${formatDisplayName(lastAskResult.targetPlayerName)} gave it!`
+                : `${formatDisplayName(lastAskResult?.targetPlayerName)} said No!`}
             </Text>
             <Text style={styles.askResultCardName}>{lastAskResult?.cardName}</Text>
             <Text style={styles.askResultTurnInfo}>
               {lastAskResult?.targetHadCard
-                ? `${lastAskResult.askingPlayerName ?? "Player"} plays again`
-                : `Turn passes to ${lastAskResult?.targetPlayerName ?? "Player"}`}
+                ? `${formatDisplayName(lastAskResult.askingPlayerName)} plays again`
+                : `Turn passes to ${formatDisplayName(lastAskResult?.targetPlayerName)}`}
             </Text>
             <Pressable style={styles.askResultButton} onPress={closeModal}>
               <Text style={styles.askResultButtonText}>OK</Text>
@@ -1475,7 +1476,7 @@ export default function GameCodeScreen(): JSX.Element {
               {lastDeclareResult?.correct ? "✅ Correct Declaration!" : "❌ Wrong Declaration!"}
             </Text>
             <Text style={styles.askResultMeta}>
-              {lastDeclareResult?.declaringPlayerName ?? "Player"} declared {lastDeclareResult?.halfSuit?.replace("_", " ")}
+              {formatDisplayName(lastDeclareResult?.declaringPlayerName)} declared {lastDeclareResult?.halfSuit?.replace("_", " ")}
             </Text>
             <View style={styles.declareCardsWrap}>
               {getHalfSuitCards(lastDeclareResult?.halfSuit as HalfSuit).map((card) => (

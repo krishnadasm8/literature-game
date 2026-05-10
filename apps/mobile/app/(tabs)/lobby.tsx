@@ -188,6 +188,14 @@ export default function LobbyScreen(): JSX.Element {
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
+            <Pressable
+              style={styles.modalCloseButton}
+              onPress={() => {
+                setShowCreateModal(false);
+              }}
+            >
+              <Text style={styles.modalCloseText}>✕</Text>
+            </Pressable>
             <Text style={styles.modalTitle}>Room Created</Text>
             <Text style={styles.modalCode}>{createdRoomCode}</Text>
             <Pressable
@@ -362,6 +370,17 @@ const styles = StyleSheet.create({
     gap: 12,
     borderWidth: 1,
     borderColor: "#334155",
+  },
+  modalCloseButton: {
+    alignSelf: "flex-end",
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    marginBottom: -6,
+  },
+  modalCloseText: {
+    color: "#94a3b8",
+    fontSize: 16,
+    fontWeight: "800",
   },
   modalTitle: {
     fontSize: 18,
