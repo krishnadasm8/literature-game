@@ -1,3 +1,4 @@
 .env
 apps/**/.env
 node_modules/
+.expo/
