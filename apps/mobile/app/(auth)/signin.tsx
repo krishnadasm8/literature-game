@@ -10,10 +10,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import {
-  ResponseType,
-  makeRedirectUri,
-} from "expo-auth-session";
+import * as AuthSession from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
 import { StatusBar } from "expo-status-bar";
 
@@ -27,27 +24,28 @@ export default function SignInScreen(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const redirectUri = useMemo(
-    () =>
-      makeRedirectUri({
-        scheme: "literature",
-      }),
-    [],
-  );
-
-  // Use different config for Android vs Web
   const isAndroid = Platform.OS === "android";
 
+  // For Android: native app redirect (matches Android package / intent filter)
+  // For Web and iOS: custom scheme from app.json
+  const redirectUri = useMemo(() => {
+    if (isAndroid) {
+      return AuthSession.makeRedirectUri({
+        native: "com.literaturecardgame:/",
+      });
+    }
+    return AuthSession.makeRedirectUri({
+      scheme: "literature",
+    });
+  }, []);
+
+  // Second hook argument is redirect-uri options on this SDK, not discovery.
+  // Google auth URLs come from expo-auth-session’s built-in Google discovery.
   const [request, response, promptAsync] = Google.useAuthRequest({
-    clientId: isAndroid
-      ? process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID
-      : process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
     androidClientId: process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID,
     iosClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
     webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
     scopes: ["openid", "profile", "email"],
-    // Remove responseType for Android — default code flow works with Android client ID
-    ...(isAndroid ? {} : { responseType: ResponseType.IdToken }),
     redirectUri,
   });
 
@@ -121,6 +119,19 @@ export default function SignInScreen(): JSX.Element {
             <Text style={styles.buttonText}>G Continue with Google</Text>
           )}
         </Pressable>
+
+        {__DEV__ ? (
+          <Text
+            style={{
+              color: "#64748b",
+              fontSize: 10,
+              textAlign: "center",
+              marginTop: 8,
+            }}
+          >
+            {`redirect: ${redirectUri}`}
+          </Text>
+        ) : null}
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </View>
