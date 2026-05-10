@@ -4,98 +4,133 @@ import { StatusBar } from "expo-status-bar";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { LoadingOverlay } from "../components/ui/LoadingOverlay";
 import { useAuth } from "../hooks/useAuth";
 
 void SplashScreen.preventAutoHideAsync();
 
+// Global error handler for uncaught JS errors
+if (typeof ErrorUtils !== "undefined") {
+  const originalHandler = ErrorUtils.getGlobalHandler();
+  ErrorUtils.setGlobalHandler((error, isFatal) => {
+    console.error("Global error:", error?.message, "fatal:", isFatal);
+    originalHandler(error, isFatal);
+  });
+}
+
 export default function RootLayout(): JSX.Element {
   const router = useRouter();
   const segments = useSegments();
   const { isAuthenticated } = useAuth();
-  const [fontsLoaded] = useFonts({});
+  const [fontsLoaded, fontError] = useFonts({});
 
-  const isInAuthGroup = useMemo(() => segments[0] === "(auth)", [segments]);
+  const isInAuthGroup = useMemo(
+    () => segments[0] === "(auth)",
+    [segments]
+  );
 
   useEffect(() => {
-    if (fontsLoaded) {
+    if (fontsLoaded || fontError) {
       void SplashScreen.hideAsync();
     }
-  }, [fontsLoaded]);
+  }, [fontsLoaded, fontError]);
 
   useEffect(() => {
-    if (!fontsLoaded) {
+    if (!fontsLoaded && !fontError) {
       return;
     }
-
     if (isAuthenticated && isInAuthGroup) {
       router.replace("/(tabs)");
       return;
     }
-
     if (!isAuthenticated && !isInAuthGroup) {
       router.replace("/(auth)/signin");
     }
-  }, [fontsLoaded, isAuthenticated, isInAuthGroup, router]);
+  }, [fontsLoaded, fontError, isAuthenticated, isInAuthGroup, router]);
 
-  if (!fontsLoaded) {
-    return <LoadingOverlay visible message="Loading assets..." />;
+  if (!fontsLoaded && !fontError) {
+    return <LoadingOverlay visible message="Loading..." />;
   }
 
   return (
-    <>
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: styles.screenContent,
-          animation: "slide_from_right",
-        }}
-      >
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="(auth)" options={{ headerShown: false, presentation: "modal", animation: "slide_from_bottom" }} />
-        <Stack.Screen
-          name="game/[code]"
-          options={({ navigation, route }) => {
-            const roomCode = (route.params as { code?: string } | undefined)?.code?.toUpperCase() ?? "---";
-            return {
-              headerShown: true,
-              headerStyle: styles.gameHeader,
-              headerShadowVisible: false,
-              headerTitleAlign: "center",
-              headerTitle: () => (
-                <View style={styles.gameHeaderTitleRow}>
-                  <Text style={styles.gameHeaderRoomCode}>Room: {roomCode}</Text>
-                </View>
-              ),
-              headerLeft: ({ canGoBack }) =>
-                canGoBack ? (
-                  <Pressable style={styles.backButton} onPress={navigation.goBack}>
-                    <Text style={styles.backText}>← Back</Text>
-                  </Pressable>
-                ) : null,
-              headerRight: () => (
-                <Pressable
-                  onPress={() => {
-                    Alert.alert("Leave Game?", "Are you sure you want to leave? Your team may forfeit.", [
-                      { text: "Stay", style: "cancel" },
-                      {
-                        text: "Leave",
-                        style: "destructive",
-                        onPress: () => navigation.goBack(),
-                      },
-                    ]);
-                  }}
-                >
-                  <Text style={styles.leaveGameText}>Leave Game</Text>
-                </Pressable>
-              ),
-            };
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: styles.screenContent,
+            animation: "slide_from_right",
           }}
-        />
-      </Stack>
-    </>
+        >
+          <Stack.Screen
+            name="(tabs)"
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="(auth)"
+            options={{
+              headerShown: false,
+              presentation: "modal",
+              animation: "slide_from_bottom",
+            }}
+          />
+          <Stack.Screen
+            name="game/[code]"
+            options={({ navigation, route }) => {
+              const roomCode =
+                (route.params as { code?: string } | undefined)
+                  ?.code?.toUpperCase() ?? "---";
+              return {
+                headerShown: true,
+                headerStyle: styles.gameHeader,
+                headerShadowVisible: false,
+                headerTitleAlign: "center",
+                headerTitle: () => (
+                  <View style={styles.gameHeaderTitleRow}>
+                    <Text style={styles.gameHeaderRoomCode}>
+                      Room: {roomCode}
+                    </Text>
+                  </View>
+                ),
+                headerLeft: ({ canGoBack }) =>
+                  canGoBack ? (
+                    <Pressable
+                      style={styles.backButton}
+                      onPress={navigation.goBack}
+                    >
+                      <Text style={styles.backText}>← Back</Text>
+                    </Pressable>
+                  ) : null,
+                headerRight: () => (
+                  <Pressable
+                    onPress={() => {
+                      Alert.alert(
+                        "Leave Game?",
+                        "Are you sure? Your team may forfeit.",
+                        [
+                          { text: "Stay", style: "cancel" },
+                          {
+                            text: "Leave",
+                            style: "destructive",
+                            onPress: () => navigation.goBack(),
+                          },
+                        ]
+                      );
+                    }}
+                  >
+                    <Text style={styles.leaveGameText}>Leave Game</Text>
+                  </Pressable>
+                ),
+              };
+            }}
+          />
+        </Stack>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -109,6 +144,7 @@ const styles = StyleSheet.create({
   backButton: {
     paddingVertical: 6,
     paddingRight: 8,
+    paddingLeft: 4,
   },
   backText: {
     color: "#f59e0b",
@@ -135,5 +171,6 @@ const styles = StyleSheet.create({
     color: "#ef4444",
     fontWeight: "700",
     fontSize: 14,
+    paddingRight: 4,
   },
 });

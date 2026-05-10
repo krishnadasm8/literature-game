@@ -19,22 +19,19 @@ export default function SignInScreen(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const googleClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
-
   const redirectUri = useMemo(
     () =>
       makeRedirectUri({
         scheme: "literature",
-        path: "auth",
-        preferLocalhost: true,
       }),
     [],
   );
+
   const [request, response, promptAsync] = Google.useAuthRequest({
-    clientId: googleClientId,
-    androidClientId: googleClientId,
-    iosClientId: googleClientId,
-    webClientId: googleClientId,
+    clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
     scopes: ["openid", "profile", "email"],
     responseType: ResponseType.IdToken,
     redirectUri,
