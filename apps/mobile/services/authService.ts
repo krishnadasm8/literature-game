@@ -34,12 +34,30 @@ interface BackendGoogleAuthResponse {
 export const googleSignIn = async (
   token: string,
   isIdToken: boolean = true,
+  isAuthCode: boolean = false,
 ): Promise<GoogleSignInResult> => {
-  const payload = isIdToken ? { idToken: token } : { accessToken: token };
+  let payload: Record<string, string>;
+
+  if (isAuthCode) {
+    payload = {
+      code: token,
+      redirectUri: "com.literaturecardgame:/",
+    };
+  } else if (isIdToken) {
+    payload = { idToken: token };
+  } else {
+    payload = { accessToken: token };
+  }
+
+  console.log(
+    "googleSignIn payload type:",
+    isAuthCode ? "code" : isIdToken ? "idToken" : "accessToken",
+  );
 
   const response = await api.post<BackendGoogleAuthResponse>("/auth/google", payload);
-
   const data = response.data;
+
+  console.log("googleSignIn response:", data);
 
   const accessToken = data.accessToken;
   const refreshToken = data.refreshToken;

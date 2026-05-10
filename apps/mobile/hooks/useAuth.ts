@@ -11,7 +11,11 @@ interface UseAuthResult {
   user: AuthUser | null;
   accessToken: string | null;
   isAuthenticated: boolean;
-  signInWithGoogle: (token: string, isIdToken?: boolean) => Promise<void>;
+  signInWithGoogle: (
+    token: string,
+    isIdToken?: boolean,
+    isAuthCode?: boolean,
+  ) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -23,8 +27,12 @@ export const useAuth = (): UseAuthResult => {
   const clearAuth = useAuthStore((state) => state.clearAuth);
 
   const signInWithGoogle = useCallback(
-    async (token: string, isIdToken: boolean = true) => {
-      const result = await googleSignIn(token, isIdToken);
+    async (
+      token: string,
+      isIdToken: boolean = true,
+      isAuthCode: boolean = false,
+    ) => {
+      const result = await googleSignIn(token, isIdToken, isAuthCode);
       setUser(
         {
           id: result.userId,

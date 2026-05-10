@@ -12,14 +12,7 @@ router.post("/google", async (req, res) => {
     console.log("Auth request body:", req.body);
     console.log("idToken:", req.body.idToken ? "present" : "missing");
     console.log("accessToken:", req.body.accessToken ? "present" : "missing");
-
-    const idToken = req.body?.idToken as string | undefined;
-    const accessToken = req.body?.accessToken as string | undefined;
-
-    if (!idToken && !accessToken) {
-      res.status(400).json({ error: "idToken or accessToken required" });
-      return;
-    }
+    console.log("code:", req.body.code ? "present" : "missing");
 
     const googleClientId = process.env.GOOGLE_CLIENT_ID;
     if (!googleClientId) {
@@ -34,23 +27,101 @@ router.post("/google", async (req, res) => {
       return;
     }
 
-    let payload: any;
+    const code = req.body?.code as string | undefined;
+    const codeRedirectUri = req.body?.redirectUri as string | undefined;
 
-    if (idToken) {
-      const ticket = await googleClient.verifyIdToken({
-        idToken,
-        audience: googleClientId,
-      });
-      payload = ticket.getPayload();
-    } else if (accessToken) {
-      const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!userInfoRes.ok) {
-        res.status(401).json({ error: "Invalid Google access token." });
+    let payload: any = null;
+
+    // Android auth code exchange (server-side, Web client secret)
+    if (code && codeRedirectUri) {
+      console.log("Exchanging auth code for tokens...");
+      console.log("code:", `${code.substring(0, 20)}...`);
+      console.log("redirectUri:", codeRedirectUri);
+
+      try {
+        const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            code,
+            client_id: googleClientId,
+            client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+            redirect_uri: codeRedirectUri,
+            grant_type: "authorization_code",
+          }).toString(),
+        });
+
+        const tokens = (await tokenResponse.json()) as {
+          id_token?: string;
+          access_token?: string;
+          error?: string;
+          error_description?: string;
+        };
+
+        console.log("Token exchange result:", {
+          has_id_token: !!tokens.id_token,
+          has_access_token: !!tokens.access_token,
+          error: tokens.error,
+          error_description: tokens.error_description,
+        });
+
+        if (tokens.error) {
+          res.status(401).json({
+            error: tokens.error_description ?? tokens.error,
+          });
+          return;
+        }
+
+        if (tokens.id_token) {
+          const ticket = await googleClient.verifyIdToken({
+            idToken: tokens.id_token,
+            audience: googleClientId,
+          });
+          payload = ticket.getPayload();
+        } else if (tokens.access_token) {
+          const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+            headers: {
+              Authorization: `Bearer ${tokens.access_token}`,
+            },
+          });
+          if (!userInfoRes.ok) {
+            res.status(401).json({ error: "Invalid Google access token." });
+            return;
+          }
+          payload = await userInfoRes.json();
+        }
+      } catch (codeError) {
+        console.error("Code exchange error:", codeError);
+        res.status(401).json({
+          error: "Failed to exchange auth code",
+        });
         return;
       }
-      payload = await userInfoRes.json();
+    }
+
+    // Existing idToken / accessToken handling
+    if (!payload) {
+      const idToken = req.body?.idToken as string | undefined;
+      const accessToken = req.body?.accessToken as string | undefined;
+
+      if (idToken) {
+        const ticket = await googleClient.verifyIdToken({
+          idToken,
+          audience: googleClientId,
+        });
+        payload = ticket.getPayload();
+      } else if (accessToken) {
+        const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!userInfoRes.ok) {
+          res.status(401).json({ error: "Invalid Google access token." });
+          return;
+        }
+        payload = await userInfoRes.json();
+      }
     }
 
     if (!payload?.sub) {
