@@ -2,11 +2,20 @@
   "expo": {
     "name": "Literature",
     "slug": "literature-card-game",
+    "version": "1.0.0",
     "scheme": "literature",
+    "platforms": ["ios", "android", "web"],
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#1a472a"
+        }
+      ]
     ],
     "extra": {
       "router": {
@@ -22,7 +31,19 @@
     "updates": {
       "url": "https://u.expo.dev/7519515a-5f31-49a8-bb52-b9459084f0d6"
     },
-    "android": {},
-    "ios": {}
+    "android": {
+      "package": "com.literaturecardgame",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1a472a"
+      },
+      "permissions": []
+    },
+    "ios": {
+      "bundleIdentifier": "com.literaturecardgame"
+    },
+    "splash": {
+      "backgroundColor": "#1a472a"
+    }
   }
 }
