@@ -1,7 +1,9 @@
-import { PrismaClient, type Team } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { Router } from "express";
 
 import type { AuthenticatedRequest } from "../middleware/auth.middleware";
+
+type Team = "TEAM_A" | "TEAM_B";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { emitToRoomNamespace } from "../sockets";
 import { gameManager } from "../services/gameManager";
@@ -153,7 +155,7 @@ router.post("/:code/join", authMiddleware, async (req: AuthenticatedRequest, res
       return;
     }
 
-    const existing = room.players.find((player) => player.userId === userId);
+    const existing = room.players.find((player: any) => player.userId === userId);
     if (!existing) {
       const seatIndex = room.players.length;
       await prisma.roomPlayer.create({
@@ -198,7 +200,7 @@ router.post("/:code/leave", authMiddleware, async (req: AuthenticatedRequest, re
       return;
     }
 
-    const roomPlayer = room.players.find((player) => player.userId === userId);
+    const roomPlayer = room.players.find((player: any) => player.userId === userId);
     if (!roomPlayer) {
       res.status(200).json({ room: toPublicRoom(room) });
       return;
@@ -232,7 +234,7 @@ router.post("/:code/ready", authMiddleware, async (req: AuthenticatedRequest, re
     }
 
     const isReady = Boolean(req.body?.isReady);
-    const roomPlayer = room.players.find((player) => player.userId === userId);
+    const roomPlayer = room.players.find((player: any) => player.userId === userId);
     if (!roomPlayer) {
       res.status(404).json({ error: "Player not in room." });
       return;
@@ -287,7 +289,7 @@ router.patch("/:code/team", authMiddleware, async (req: AuthenticatedRequest, re
       return;
     }
 
-    const roomPlayer = room.players.find((player) => player.userId === userId);
+    const roomPlayer = room.players.find((player: any) => player.userId === userId);
     if (!roomPlayer) {
       res.status(404).json({ error: "Player not in room." });
       return;
@@ -344,8 +346,8 @@ router.post("/:code/start", authMiddleware, async (req: AuthenticatedRequest, re
       return;
     }
 
-    const nonBotPlayers = room.players.filter((player) => !player.user.googleId.startsWith("bot_"));
-    if (nonBotPlayers.some((player) => !player.isReady)) {
+    const nonBotPlayers = room.players.filter((player: any) => !player.user.googleId.startsWith("bot_"));
+    if (nonBotPlayers.some((player: any) => !player.isReady)) {
       res.status(400).json({ error: "All non-bot players must be ready." });
       return;
     }
@@ -387,7 +389,7 @@ router.post("/:code/start", authMiddleware, async (req: AuthenticatedRequest, re
       roomId: finalizedRoom.id,
       roomPlayerUserIds: [...finalizedRoom.players]
         .sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime())
-        .map((player) => player.userId),
+        .map((player: any) => player.userId),
     });
 
     await prisma.room.update({

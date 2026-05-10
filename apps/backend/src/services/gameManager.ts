@@ -252,9 +252,9 @@ export const gameManager = {
     );
     const newState = applyAsk(currentState, askingPlayerId, targetPlayerId, card);
     const targetPlayerName =
-      game.room.players.find((player) => player.userId === targetPlayerId)?.user.displayName ?? "Player";
+      game.room.players.find((player: any) => player.userId === targetPlayerId)?.user.displayName ?? "Player";
     const askingPlayerName =
-      game.room.players.find((player) => player.userId === askingPlayerId)?.user.displayName ?? "Player";
+      game.room.players.find((player: any) => player.userId === askingPlayerId)?.user.displayName ?? "Player";
 
     await prisma.game.update({
       where: { id: game.id },
@@ -456,7 +456,7 @@ export const gameManager = {
     const updatedUsers = room
       ? await prisma.user.findMany({
           where: {
-            id: { in: room.players.map((player) => player.userId) },
+            id: { in: room.players.map((player: any) => player.userId) },
           },
           select: {
             id: true,
@@ -466,7 +466,7 @@ export const gameManager = {
         })
       : [];
     const playerStats: Record<string, PlayerStatSummary> = Object.fromEntries(
-      updatedUsers.map((user) => [
+      updatedUsers.map((user: any) => [
         user.id,
         {
           gamesPlayed: user.gamesPlayed,

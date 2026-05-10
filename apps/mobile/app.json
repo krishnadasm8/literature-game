@@ -7,6 +7,22 @@
       "expo-router",
       "expo-font",
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "7519515a-5f31-49a8-bb52-b9459084f0d6"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/7519515a-5f31-49a8-bb52-b9459084f0d6"
+    },
+    "android": {},
+    "ios": {}
   }
 }
