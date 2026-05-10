@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -10,13 +10,23 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import * as AuthSession from "expo-auth-session";
-import * as Google from "expo-auth-session/providers/google";
+import * as Crypto from "expo-crypto";
 import { StatusBar } from "expo-status-bar";
-
 import { useAuth } from "../../hooks/useAuth";
 
 WebBrowser.maybeCompleteAuthSession();
+
+const GOOGLE_CLIENT_ID = Platform.select({
+  android: process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID,
+  ios: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+  default: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+});
+
+const REDIRECT_URI = Platform.select({
+  android: "com.literaturecardgame:/",
+  ios: "literature://auth",
+  default: `${process.env.EXPO_PUBLIC_API_URL?.replace("/api/v1", "")}/auth/callback`,
+});
 
 export default function SignInScreen(): JSX.Element {
   const router = useRouter();
@@ -24,78 +34,70 @@ export default function SignInScreen(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isAndroid = Platform.OS === "android";
-
-  // For Android: native app redirect (matches Android package / intent filter)
-  // For Web and iOS: custom scheme from app.json
-  const redirectUri = useMemo(() => {
-    if (isAndroid) {
-      return AuthSession.makeRedirectUri({
-        native: "com.literaturecardgame:/",
-      });
-    }
-    return AuthSession.makeRedirectUri({
-      scheme: "literature",
-    });
-  }, []);
-
-  // Second hook argument is redirect-uri options on this SDK, not discovery.
-  // Google auth URLs come from expo-auth-session’s built-in Google discovery.
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    androidClientId: process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID,
-    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
-    webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
-    scopes: ["openid", "profile", "email"],
-    redirectUri,
-  });
-
-  useEffect(() => {
-    const run = async (): Promise<void> => {
-      if (response?.type !== "success") {
-        return;
-      }
-
-      const idToken =
-        response.authentication?.idToken ??
-        response.params?.id_token ??
-        null;
-
-      const accessToken = response.authentication?.accessToken ?? null;
-
-      console.log("Auth response type:", response.type);
-      console.log("Has idToken:", !!idToken);
-      console.log("Has accessToken:", !!accessToken);
-
-      const tokenToSend = idToken ?? accessToken;
-
-      if (!tokenToSend) {
-        setError(`No token received. Platform: ${Platform.OS}`);
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-      try {
-        await signInWithGoogle(tokenToSend, !!idToken);
-        router.replace("/(tabs)");
-      } catch (authError) {
-        setError(
-          authError instanceof Error ? authError.message : "Sign-in failed.",
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void run();
-  }, [response, router, signInWithGoogle]);
-
-  const onGooglePress = async (): Promise<void> => {
-    if (!request || loading) {
-      return;
-    }
+  const handleGoogleSignIn = async (): Promise<void> => {
+    if (loading) return;
+    setLoading(true);
     setError(null);
-    await promptAsync();
+
+    try {
+      // Generate random state for security
+      const state = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        Math.random().toString(),
+      );
+
+      // Build Google OAuth URL
+      const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+      authUrl.searchParams.set("client_id", GOOGLE_CLIENT_ID ?? "");
+      authUrl.searchParams.set("redirect_uri", REDIRECT_URI ?? "");
+      authUrl.searchParams.set("response_type", "token id_token");
+      authUrl.searchParams.set("scope", "openid profile email");
+      authUrl.searchParams.set("state", state);
+      authUrl.searchParams.set("nonce", state);
+
+      console.log("Auth URL:", authUrl.toString());
+      console.log("Client ID:", GOOGLE_CLIENT_ID);
+      console.log("Redirect URI:", REDIRECT_URI);
+
+      // Open browser
+      const result = await WebBrowser.openAuthSessionAsync(
+        authUrl.toString(),
+        REDIRECT_URI ?? "",
+      );
+
+      console.log("Auth result type:", result.type);
+
+      if (result.type !== "success") {
+        setError("Sign-in was cancelled or failed.");
+        return;
+      }
+
+      // Parse the response URL
+      const url = new URL(result.url);
+      const params = new URLSearchParams(
+        url.hash.substring(1) || url.search.substring(1),
+      );
+
+      const idToken = params.get("id_token");
+      const accessToken = params.get("access_token");
+
+      console.log("Got idToken:", !!idToken);
+      console.log("Got accessToken:", !!accessToken);
+
+      const token = idToken ?? accessToken;
+      if (!token) {
+        setError("No token in response");
+        return;
+      }
+
+      await signInWithGoogle(token, !!idToken);
+      router.replace("/(tabs)");
+    } catch (err) {
+      console.error("Sign in error:", err);
+      setError(err instanceof Error ? err.message : "Sign-in failed");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -107,10 +109,10 @@ export default function SignInScreen(): JSX.Element {
         <Text style={styles.subtitle}>Canadian Card Game</Text>
 
         <Pressable
-          style={[styles.button, (!request || loading) && styles.buttonDisabled]}
-          disabled={!request || loading}
+          style={[styles.button, loading && styles.buttonDisabled]}
+          disabled={loading}
           onPress={() => {
-            void onGooglePress();
+            void handleGoogleSignIn();
           }}
         >
           {loading ? (
@@ -120,22 +122,21 @@ export default function SignInScreen(): JSX.Element {
           )}
         </Pressable>
 
-        {__DEV__ ? (
-          <Text
-            style={{
-              color: "#64748b",
-              fontSize: 10,
-              textAlign: "center",
-              marginTop: 8,
-            }}
-          >
-            {`redirect: ${redirectUri}`}
-          </Text>
-        ) : null}
-
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+        {__DEV__ && (
+          <Text style={styles.debugText}>
+            {`ClientID: ${GOOGLE_CLIENT_ID?.substring(0, 20)}...`}
+            {"\n"}
+            {`Redirect: ${REDIRECT_URI}`}
+            {"\n"}
+            {`Platform: ${Platform.OS}`}
+          </Text>
+        )}
       </View>
-      <Text style={styles.legalText}>By continuing you agree to our Terms of Service</Text>
+      <Text style={styles.legalText}>
+        By continuing you agree to our Terms of Service
+      </Text>
     </SafeAreaView>
   );
 }
@@ -189,6 +190,12 @@ const styles = StyleSheet.create({
     marginTop: 12,
     color: "#ef4444",
     fontSize: 13,
+    textAlign: "center",
+  },
+  debugText: {
+    marginTop: 8,
+    color: "#64748b",
+    fontSize: 10,
     textAlign: "center",
   },
   legalText: {
