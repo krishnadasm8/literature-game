@@ -8,7 +8,7 @@ export interface AuthTokens {
 export interface GoogleSignInResult {
   userId: string;
   displayName: string;
-  avatarUrl?: string;
+  avatarUrl: string;
   gamesPlayed: number;
   gamesWon: number;
   winRate: number;
@@ -16,15 +16,22 @@ export interface GoogleSignInResult {
 }
 
 interface BackendGoogleAuthResponse {
-  accessToken: string;
-  refreshToken: string;
-  user: {
-    id: string;
-    displayName: string;
+  accessToken?: string;
+  refreshToken?: string;
+  user?: {
+    id?: string;
+    displayName?: string;
     avatarUrl?: string | null;
-    gamesPlayed: number;
-    gamesWon: number;
+    gamesPlayed?: number | null;
+    gamesWon?: number | null;
   };
+}
+
+function computeWinRate(gamesPlayed: number, gamesWon: number): number {
+  if (gamesPlayed <= 0) {
+    return 0;
+  }
+  return Math.round((gamesWon / gamesPlayed) * 100);
 }
 
 export const googleSignIn = async (idToken: string): Promise<GoogleSignInResult> => {
@@ -32,19 +39,38 @@ export const googleSignIn = async (idToken: string): Promise<GoogleSignInResult>
     idToken,
   });
 
+  const data = response.data;
+  const user = data?.user;
+
+  const accessToken = data?.accessToken;
+  const refreshToken = data?.refreshToken;
+  const userId = user?.id;
+
+  if (
+    typeof accessToken !== "string" ||
+    typeof refreshToken !== "string" ||
+    typeof userId !== "string"
+  ) {
+    throw new Error("Invalid sign-in response from server.");
+  }
+
+  const gamesPlayed = Number(user?.gamesPlayed) || 0;
+  const gamesWon = Number(user?.gamesWon) || 0;
+  const displayName =
+    typeof user?.displayName === "string" && user.displayName.trim().length > 0
+      ? user.displayName.trim()
+      : "Player";
+
   return {
-    userId: response.data.user.id,
-    displayName: response.data.user.displayName,
-    avatarUrl: response.data.user.avatarUrl ?? undefined,
-    gamesPlayed: response.data.user.gamesPlayed ?? 0,
-    gamesWon: response.data.user.gamesWon ?? 0,
-    winRate:
-      (response.data.user.gamesPlayed ?? 0) > 0
-        ? Math.round(((response.data.user.gamesWon ?? 0) / (response.data.user.gamesPlayed ?? 1)) * 100)
-        : 0,
+    userId,
+    displayName,
+    avatarUrl: typeof user?.avatarUrl === "string" ? user.avatarUrl : "",
+    gamesPlayed,
+    gamesWon,
+    winRate: computeWinRate(gamesPlayed, gamesWon),
     tokens: {
-      accessToken: response.data.accessToken,
-      refreshToken: response.data.refreshToken,
+      accessToken,
+      refreshToken,
     },
   };
 };

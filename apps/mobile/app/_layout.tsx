@@ -10,6 +10,81 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { LoadingOverlay } from "../components/ui/LoadingOverlay";
 import { useAuth } from "../hooks/useAuth";
 
+interface AppErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface AppErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class AppErrorBoundary extends React.Component<
+  AppErrorBoundaryProps,
+  AppErrorBoundaryState
+> {
+  constructor(props: AppErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): AppErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    console.error("App crashed:", error.message);
+    console.error("Component stack:", info.componentStack);
+  }
+
+  render(): React.ReactNode {
+    if (this.state.hasError) {
+      return (
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "#0f172a",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+          }}
+        >
+          <Text
+            style={{
+              color: "#f59e0b",
+              fontSize: 24,
+              fontWeight: "800",
+              marginBottom: 16,
+            }}
+          >
+            ♠ Literature
+          </Text>
+          <Text
+            style={{
+              color: "#ef4444",
+              fontSize: 14,
+              textAlign: "center",
+              marginBottom: 8,
+            }}
+          >
+            Something went wrong
+          </Text>
+          <Text
+            style={{
+              color: "#64748b",
+              fontSize: 11,
+              textAlign: "center",
+            }}
+          >
+            {this.state.error?.message ?? "Unknown error"}
+          </Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 void SplashScreen.preventAutoHideAsync();
 
 // Global error handler for uncaught JS errors
@@ -56,81 +131,80 @@ export default function RootLayout(): JSX.Element {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <StatusBar style="light" />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: styles.screenContent,
-            animation: "slide_from_right",
-          }}
-        >
-          <Stack.Screen
-            name="(tabs)"
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="(auth)"
-            options={{
+    <AppErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <StatusBar style="light" />
+          <Stack
+            screenOptions={{
               headerShown: false,
-              presentation: "modal",
-              animation: "slide_from_bottom",
+              contentStyle: styles.screenContent,
+              animation: "slide_from_right",
             }}
-          />
-          <Stack.Screen
-            name="game/[code]"
-            options={({ navigation, route }) => {
-              const roomCode =
-                (route.params as { code?: string } | undefined)
-                  ?.code?.toUpperCase() ?? "---";
-              return {
-                headerShown: true,
-                headerStyle: styles.gameHeader,
-                headerShadowVisible: false,
-                headerTitleAlign: "center",
-                headerTitle: () => (
-                  <View style={styles.gameHeaderTitleRow}>
-                    <Text style={styles.gameHeaderRoomCode}>
-                      Room: {roomCode}
-                    </Text>
-                  </View>
-                ),
-                headerLeft: ({ canGoBack }) =>
-                  canGoBack ? (
+          >
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="(auth)"
+              options={{
+                headerShown: false,
+                presentation: "modal",
+                animation: "slide_from_bottom",
+              }}
+            />
+            <Stack.Screen
+              name="game/[code]"
+              options={({ navigation, route }) => {
+                const roomCode =
+                  (route.params as { code?: string } | undefined)
+                    ?.code?.toUpperCase() ?? "---";
+                return {
+                  headerShown: true,
+                  headerStyle: styles.gameHeader,
+                  headerShadowVisible: false,
+                  headerTitleAlign: "center",
+                  headerTitle: () => (
+                    <View style={styles.gameHeaderTitleRow}>
+                      <Text style={styles.gameHeaderRoomCode}>
+                        Room: {roomCode}
+                      </Text>
+                    </View>
+                  ),
+                  headerLeft: ({ canGoBack }) =>
+                    canGoBack ? (
+                      <Pressable
+                        style={styles.backButton}
+                        onPress={navigation.goBack}
+                      >
+                        <Text style={styles.backText}>← Back</Text>
+                      </Pressable>
+                    ) : null,
+                  headerRight: () => (
                     <Pressable
-                      style={styles.backButton}
-                      onPress={navigation.goBack}
+                      onPress={() => {
+                        Alert.alert(
+                          "Leave Game?",
+                          "Are you sure? Your team may forfeit.",
+                          [
+                            { text: "Stay", style: "cancel" },
+                            {
+                              text: "Leave",
+                              style: "destructive",
+                              onPress: () => navigation.goBack(),
+                            },
+                          ]
+                        );
+                      }}
                     >
-                      <Text style={styles.backText}>← Back</Text>
+                      <Text style={styles.leaveGameText}>Leave Game</Text>
                     </Pressable>
-                  ) : null,
-                headerRight: () => (
-                  <Pressable
-                    onPress={() => {
-                      Alert.alert(
-                        "Leave Game?",
-                        "Are you sure? Your team may forfeit.",
-                        [
-                          { text: "Stay", style: "cancel" },
-                          {
-                            text: "Leave",
-                            style: "destructive",
-                            onPress: () => navigation.goBack(),
-                          },
-                        ]
-                      );
-                    }}
-                  >
-                    <Text style={styles.leaveGameText}>Leave Game</Text>
-                  </Pressable>
-                ),
-              };
-            }}
-          />
-        </Stack>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+                  ),
+                };
+              }}
+            />
+          </Stack>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </AppErrorBoundary>
   );
 }
 

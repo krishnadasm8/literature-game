@@ -2,8 +2,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { formatDisplayName } from "../utils/nameHelpers";
-
 export interface AuthUser {
   id: string;
   displayName: string;
@@ -18,7 +16,11 @@ interface AuthStoreState {
   accessToken: string | null;
   isAuthenticated: boolean;
   setUser: (user: AuthUser, accessToken: string) => void;
-  updateUserStats: (stats: { gamesPlayed: number; gamesWon: number; winRate: number }) => void;
+  updateUserStats: (stats: {
+    gamesPlayed: number;
+    gamesWon: number;
+    winRate: number;
+  }) => void;
   clearAuth: () => void;
 }
 
@@ -29,12 +31,8 @@ export const useAuthStore = create<AuthStoreState>()(
       accessToken: null,
       isAuthenticated: false,
       setUser: (user, accessToken) => {
-        const normalizedUser: AuthUser = {
-          ...user,
-          displayName: formatDisplayName(user.displayName),
-        };
         set({
-          user: normalizedUser,
+          user,
           accessToken,
           isAuthenticated: true,
         });
@@ -60,6 +58,11 @@ export const useAuthStore = create<AuthStoreState>()(
         accessToken: state.accessToken,
         isAuthenticated: state.isAuthenticated,
       }),
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.error("Auth store rehydration error:", error);
+        }
+      },
     },
   ),
 );
