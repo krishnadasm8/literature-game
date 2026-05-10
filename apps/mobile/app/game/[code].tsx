@@ -312,10 +312,23 @@ export default function GameCodeScreen(): JSX.Element {
   };
 
   const closeModal = useCallback(() => {
+    // Lock first so incoming socket updates do not immediately reopen UI.
     setModalLocked(true);
+
+    // Clear all panel/modal state in one pass to avoid flicker between states.
     setLastAskResult(null);
     setLastDeclareResult(null);
-    setTimeout(() => setModalLocked(false), 800);
+    setAskPanelOpen(false);
+    setDeclarePanelOpen(false);
+    setSelectedOpponentId(null);
+    setSelectedAskCard(null);
+    setSelectedHalfSuit(null);
+    setSelectedDeclareHalfSuit(null);
+    setSelectedSourceCardCode(null);
+
+    setTimeout(() => {
+      setModalLocked(false);
+    }, 1000);
   }, [setLastAskResult, setLastDeclareResult, setModalLocked]);
 
   useEffect(() => {
@@ -683,6 +696,17 @@ export default function GameCodeScreen(): JSX.Element {
     }
   };
 
+  const handleOpenAskPanel = useCallback((): void => {
+    if (!isMyTurn || isSpectator || submitting || Boolean(lastAskResult)) {
+      return;
+    }
+    setSelectedOpponentId(null);
+    setSelectedAskCard(null);
+    setSelectedHalfSuit(null);
+    setSelectedSourceCardCode(null);
+    setAskPanelOpen(true);
+  }, [isMyTurn, isSpectator, submitting, lastAskResult]);
+
   const handleDeclare = async (halfSuit: HalfSuit): Promise<void> => {
     if (!gameState?.id || !isMyTurn || isSpectator) {
       return;
@@ -795,11 +819,13 @@ export default function GameCodeScreen(): JSX.Element {
                   if (!canOpenAskFromPlayer) {
                     return;
                   }
+                  if (askPanelOpen) {
+                    setSelectedOpponentId(player.id);
+                    return;
+                  }
                   if (!displayIsMyTurn || !askPanelEnabled || gameEventVisible) {
                     return;
                   }
-                  setSelectedOpponentId(player.id);
-                  setAskPanelOpen(true);
                 }}
               >
                 <View style={styles.avatarCircle}>
@@ -836,13 +862,12 @@ export default function GameCodeScreen(): JSX.Element {
             <View style={styles.askTimerSection}>
               <View style={styles.turnActionRow}>
                 <Pressable
-                  style={styles.openAskButton}
-                  onPress={() => {
-                    if (!displayIsMyTurn || !askPanelEnabled || gameEventVisible) {
-                      return;
-                    }
-                    setAskPanelOpen(true);
-                  }}
+                  style={[
+                    styles.openAskButton,
+                    (!isMyTurn || submitting || !!lastAskResult) && styles.askButtonDisabled,
+                  ]}
+                  onPress={handleOpenAskPanel}
+                  disabled={!isMyTurn || submitting || !!lastAskResult}
                 >
                   <Text style={styles.openAskText}>Ask</Text>
                 </Pressable>
@@ -910,28 +935,33 @@ export default function GameCodeScreen(): JSX.Element {
       </View>
 
       <Modal
-        visible={
-          askPanelOpen &&
-          displayIsMyTurn &&
-          askPanelEnabled &&
-          !gameEventVisible &&
-          !panelLocked &&
-          !lastAskResult &&
-          !lastDeclareResult &&
-          !gameOverData
-        }
+        visible={askPanelOpen}
         transparent
         animationType="slide"
         onRequestClose={() => {
-          setAskPanelEnabled(false);
-          closeAllPanels();
-          lockPanels();
-          reEnableAskPanelWithDelay();
+          closeModal();
         }}
       >
-        <View style={styles.askOverlay}>
-          <View style={styles.askBackdrop} />
-          <SafeAreaView style={styles.askPanel}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }}
+          onPress={() => {
+            closeModal();
+          }}
+        >
+          <Pressable
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              right: 0,
+              backgroundColor: "#1e293b",
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              padding: 20,
+              maxHeight: "80%",
+            }}
+            onPress={(event) => event.stopPropagation()}
+          >
             <ScrollView
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.askPanelScrollContent}
@@ -941,10 +971,7 @@ export default function GameCodeScreen(): JSX.Element {
                 <Pressable
                   style={styles.closeButtonHitbox}
                   onPress={() => {
-                    setAskPanelEnabled(false);
-                    closeAllPanels();
-                    lockPanels();
-                    reEnableAskPanelWithDelay();
+                    closeModal();
                   }}
                 >
                   <Text style={styles.closeText}>✕</Text>
@@ -1048,10 +1075,7 @@ export default function GameCodeScreen(): JSX.Element {
                 <Pressable
                   style={styles.cancelButton}
                   onPress={() => {
-                    setAskPanelEnabled(false);
-                    closeAllPanels();
-                    lockPanels();
-                    reEnableAskPanelWithDelay();
+                    closeModal();
                   }}
                 >
                   <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -1067,8 +1091,8 @@ export default function GameCodeScreen(): JSX.Element {
                 </Pressable>
               </View>
             </ScrollView>
-          </SafeAreaView>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal
@@ -1076,26 +1100,41 @@ export default function GameCodeScreen(): JSX.Element {
         transparent
         animationType="slide"
         onRequestClose={() => {
-          markPopupRecentlyClosed();
-          setAskPanelEnabled(false);
-          closeAllPanels();
-          lockPanels();
-          reEnableAskPanelWithDelay();
+          setDeclarePanelOpen(false);
+          setSelectedDeclareHalfSuit(null);
+          setSelectedHalfSuit(null);
         }}
       >
-        <View style={styles.askOverlay}>
-          <View style={styles.askBackdrop} />
-          <SafeAreaView style={styles.declarePanel}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }}
+          onPress={() => {
+            setDeclarePanelOpen(false);
+            setSelectedDeclareHalfSuit(null);
+            setSelectedHalfSuit(null);
+          }}
+        >
+          <Pressable
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              right: 0,
+              backgroundColor: "#1e293b",
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              padding: 20,
+              maxHeight: "80%",
+            }}
+            onPress={(event) => event.stopPropagation()}
+          >
             <View style={styles.declareHeader}>
               <Text style={styles.askTitle}>Declare a set</Text>
               <Pressable
                 style={styles.closeButtonHitbox}
                 onPress={() => {
-                  markPopupRecentlyClosed();
-                  setAskPanelEnabled(false);
-                  closeAllPanels();
-                  lockPanels();
-                  reEnableAskPanelWithDelay();
+                  setDeclarePanelOpen(false);
+                  setSelectedDeclareHalfSuit(null);
+                  setSelectedHalfSuit(null);
                 }}
               >
                 <Text style={styles.closeText}>✕</Text>
@@ -1141,11 +1180,9 @@ export default function GameCodeScreen(): JSX.Element {
                 <Pressable
                   style={styles.cancelButton}
                   onPress={() => {
-                    markPopupRecentlyClosed();
-                    setAskPanelEnabled(false);
-                    closeAllPanels();
-                    lockPanels();
-                    reEnableAskPanelWithDelay();
+                    setDeclarePanelOpen(false);
+                    setSelectedDeclareHalfSuit(null);
+                    setSelectedHalfSuit(null);
                   }}
                 >
                   <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -1164,8 +1201,8 @@ export default function GameCodeScreen(): JSX.Element {
                 </Pressable>
               </View>
             </View>
-          </SafeAreaView>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal
