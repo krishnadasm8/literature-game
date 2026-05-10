@@ -6,6 +6,9 @@ export interface AuthUser {
   id: string;
   displayName: string;
   avatarUrl?: string;
+  gamesPlayed: number;
+  gamesWon: number;
+  winRate: number;
 }
 
 interface AuthStoreState {
@@ -13,6 +16,7 @@ interface AuthStoreState {
   accessToken: string | null;
   isAuthenticated: boolean;
   setUser: (user: AuthUser, accessToken: string) => void;
+  updateUserStats: (stats: { gamesPlayed: number; gamesWon: number; winRate: number }) => void;
   clearAuth: () => void;
 }
 
@@ -28,6 +32,11 @@ export const useAuthStore = create<AuthStoreState>()(
           accessToken,
           isAuthenticated: true,
         });
+      },
+      updateUserStats: (stats) => {
+        set((state) => ({
+          user: state.user ? { ...state.user, ...stats } : state.user,
+        }));
       },
       clearAuth: () => {
         set({

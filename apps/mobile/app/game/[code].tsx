@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import {
   ActivityIndicator,
@@ -23,19 +23,19 @@ import Animated, {
 import { HalfSuit, MoveType, type Card, type Move, Team } from "@shared/src";
 
 import { CardView } from "../../components/cards/CardView";
+import { CardDisplay } from "../../components/cards/CardDisplay";
 import { ActionLog } from "../../components/game/ActionLog";
 import { useGameState } from "../../hooks/useGameState";
-import { declareSet, playCard, respondToAsk, timeoutTurn } from "../../services/gameService";
+import { respondToAsk } from "../../services/gameService";
 import { socketService } from "../../services/socket";
 import { useAuthStore } from "../../store/authStore";
 import { useGameStore } from "../../store/gameStore";
-import { getHalfSuit } from "../../utils/cardHelpers";
+import { cardToCode, getHalfSuit, getHalfSuitCards } from "../../utils/cardHelpers";
 
 const RANKS_BY_TIER = {
   LOW: ["TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN"],
   HIGH: ["NINE", "TEN", "JACK", "QUEEN", "KING", "ACE"],
 } as const;
-const TURN_ASK_TIMEOUT_SECONDS = 60;
 
 interface IncomingAsk {
   gameId: string;
@@ -73,16 +73,41 @@ interface DeclarationResultPayload {
   scoreDelta: number;
   declaringTeam: Team;
   newScore: number;
+  claimedTeam?: Team;
   message: string;
+  subMessage?: string;
 }
 
-const getInitials = (name: string): string =>
-  name
+interface AskAnnouncementPayload {
+  actorName: string;
+  targetName: string;
+  card: Card;
+  kind: "ASK_REQUESTED" | "ASK_GIVE" | "ASK_NO";
+}
+
+interface GameOverPayload {
+  winner: Team | "DRAW";
+  teamABooks: number;
+  teamBBooks: number;
+  scores: Record<string, number>;
+  gameStatus?: string;
+}
+
+interface GameEvent {
+  type: "declare_success" | "declare_fail" | "ask_success" | "ask_fail" | "game_over";
+  title: string;
+  message: string;
+  subMessage?: string;
+  autoCloseMs?: number;
+}
+
+const getInitials = (name?: string | null): string =>
+  (name ?? "Player")
     .split(" ")
     .filter(Boolean)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .slice(0, 2)
-    .join("");
+    .join("") || "P";
 
 function StepChip({ text, done, active }: { text: string; done: boolean; active: boolean }): JSX.Element {
   return (
@@ -99,6 +124,14 @@ export default function GameCodeScreen(): JSX.Element {
   const user = useAuthStore((state) => state.user);
   const gameState = useGameStore((state) => state.gameState);
   const myHand = useGameStore((state) => state.myHand);
+  const lastAskResult = useGameStore((state) => state.lastAskResult);
+  const setLastAskResult = useGameStore((state) => state.setLastAskResult);
+  const lastDeclareResult = useGameStore((state) => state.lastDeclareResult);
+  const setLastDeclareResult = useGameStore((state) => state.setLastDeclareResult);
+  const gameOverData = useGameStore((state) => state.gameOverData);
+  const setGameOver = useGameStore((state) => state.setGameOver);
+  const modalLocked = useGameStore((state) => state.modalLocked);
+  const setModalLocked = useGameStore((state) => state.setModalLocked);
 
   const [selectedOpponentId, setSelectedOpponentId] = useState<string | null>(null);
   const [selectedHalfSuit, setSelectedHalfSuit] = useState<HalfSuit | null>(null);
@@ -108,29 +141,55 @@ export default function GameCodeScreen(): JSX.Element {
   const [notificationText, setNotificationText] = useState<string | null>(null);
   const [incomingAsk, setIncomingAsk] = useState<IncomingAsk | null>(null);
   const [pendingOutgoingAsk, setPendingOutgoingAsk] = useState<PendingOutgoingAsk | null>(null);
+  const [askPendingGlobal, setAskPendingGlobal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [respondingAsk, setRespondingAsk] = useState(false);
   const [askPanelOpen, setAskPanelOpen] = useState(false);
+  const [askPanelEnabled, setAskPanelEnabled] = useState(true);
   const [declarePanelOpen, setDeclarePanelOpen] = useState(false);
   const [selectedDeclareHalfSuit, setSelectedDeclareHalfSuit] = useState<HalfSuit | null>(null);
   const [submittingDeclare, setSubmittingDeclare] = useState(false);
   const [declarationPopup, setDeclarationPopup] = useState<DeclarationStartedPayload | null>(null);
-  const [declarationResultPopup, setDeclarationResultPopup] = useState<DeclarationResultPayload | null>(null);
+  const [askAnnouncementPopup, setAskAnnouncementPopup] = useState<AskAnnouncementPayload | null>(null);
+  const [gameEventQueue, setGameEventQueue] = useState<GameEvent[]>([]);
+  const [currentGameEvent, setCurrentGameEvent] = useState<GameEvent | null>(null);
+  const [gameEventVisible, setGameEventVisible] = useState(false);
+  const [panelLocked, setPanelLocked] = useState(false);
+  const [countdown, setCountdown] = useState(10);
   const [declareActionsBlocked, setDeclareActionsBlocked] = useState(false);
-  const [askTimeLeft, setAskTimeLeft] = useState(TURN_ASK_TIMEOUT_SECONDS);
+  const [declareTimerPaused, setDeclareTimerPaused] = useState(false);
 
   const moveExpiryTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const timeoutSentForTurnRef = useRef<string | null>(null);
   const declarationPopupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const declarationResultDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const declarationResultHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gameEventTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const askAnnouncementTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const askPanelEnableTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const panelUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const askAnnouncementDismissedAtRef = useRef(0);
+  const askAnnouncementLastKeyRef = useRef<string | null>(null);
+  const previousHandCountsRef = useRef<Record<string, number>>({});
+  const announcedOutOfCardsRef = useRef<Set<string>>(new Set());
+  const suppressNextSelfOutOfCardsPopupRef = useRef(false);
   const declareActionsBlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const declareTimerPauseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const actionSlideY = useSharedValue(12);
   const actionOpacity = useSharedValue(0);
   const declarationPulse = useSharedValue(0.55);
 
   useGameState(code);
+
+  useEffect(() => {
+    const off = socketService.on(
+      "game:error",
+      (data: { message: string }) => {
+        console.error("Game error:", data.message);
+        Alert.alert("Game Error", data.message);
+      }
+    );
+    return off;
+  }, []);
 
   useEffect(() => {
     navigation.setOptions({ headerShown: false });
@@ -157,6 +216,137 @@ export default function GameCodeScreen(): JSX.Element {
       declareActionsBlockTimerRef.current = null;
     }, 15000);
   };
+
+  const startDeclareTimerPause = (): void => {
+    setDeclareTimerPaused(true);
+    if (declareTimerPauseRef.current) {
+      clearTimeout(declareTimerPauseRef.current);
+    }
+    declareTimerPauseRef.current = setTimeout(() => {
+      setDeclareTimerPaused(false);
+      declareTimerPauseRef.current = null;
+    }, 15000);
+  };
+
+  const openAskAnnouncementPopup = (payload: AskAnnouncementPayload): void => {
+    const now = Date.now();
+    const popupKey = `${payload.kind}:${payload.actorName}:${payload.targetName}:${payload.card.rank}:${payload.card.suit}`;
+    if (now - askAnnouncementDismissedAtRef.current < 900) {
+      return;
+    }
+    if (askAnnouncementLastKeyRef.current === popupKey) {
+      return;
+    }
+    askAnnouncementLastKeyRef.current = popupKey;
+    if (askAnnouncementTimerRef.current) {
+      clearTimeout(askAnnouncementTimerRef.current);
+    }
+    setAskAnnouncementPopup(payload);
+    askAnnouncementTimerRef.current = setTimeout(() => {
+      markPopupRecentlyClosed();
+      setAskAnnouncementPopup(null);
+      askAnnouncementLastKeyRef.current = null;
+      askAnnouncementTimerRef.current = null;
+    }, 5000);
+  };
+
+  const markPopupRecentlyClosed = (): void => {
+    askAnnouncementDismissedAtRef.current = Date.now();
+    askAnnouncementLastKeyRef.current = null;
+  };
+
+  const closeAllPanels = (): void => {
+    setDeclarePanelOpen(false);
+    setAskPanelOpen(false);
+    setSelectedOpponentId(null);
+    setSelectedAskCard(null);
+    setSelectedHalfSuit(null);
+    setGameEventVisible(false);
+  };
+
+  const reEnableAskPanelWithDelay = (): void => {
+    if (askPanelEnableTimerRef.current) {
+      clearTimeout(askPanelEnableTimerRef.current);
+    }
+    askPanelEnableTimerRef.current = setTimeout(() => {
+      setAskPanelEnabled(true);
+      askPanelEnableTimerRef.current = null;
+    }, 300);
+  };
+
+  const lockPanels = (): void => {
+    setPanelLocked(true);
+    if (panelUnlockTimerRef.current) {
+      clearTimeout(panelUnlockTimerRef.current);
+    }
+    panelUnlockTimerRef.current = setTimeout(() => {
+      setPanelLocked(false);
+      panelUnlockTimerRef.current = null;
+    }, 400);
+  };
+
+  const enqueueGameEvent = (event: GameEvent): void => {
+    setGameEventQueue((current) => {
+      if (current.length > 0) {
+        const last = current[current.length - 1];
+        if (last.type.startsWith("declare") && event.type.startsWith("declare")) {
+          const mergedSubMessage = [last.subMessage, event.subMessage].filter(Boolean).join("\n");
+          return [...current.slice(0, -1), { ...last, subMessage: mergedSubMessage || undefined }];
+        }
+      }
+      return [...current, event];
+    });
+  };
+
+  const handleCloseGameEvent = (): void => {
+    if (gameEventTimerRef.current) {
+      clearTimeout(gameEventTimerRef.current);
+      gameEventTimerRef.current = null;
+    }
+    markPopupRecentlyClosed();
+    lockPanels();
+    setAskPanelEnabled(false);
+    closeAllPanels();
+    setCurrentGameEvent(null);
+    reEnableAskPanelWithDelay();
+  };
+
+  const closeModal = useCallback(() => {
+    setModalLocked(true);
+    setLastAskResult(null);
+    setLastDeclareResult(null);
+    setTimeout(() => setModalLocked(false), 800);
+  }, [setLastAskResult, setLastDeclareResult, setModalLocked]);
+
+  useEffect(() => {
+    if (!lastAskResult) {
+      return;
+    }
+    setAskPendingGlobal(false);
+    setPendingOutgoingAsk(null);
+    setIncomingAsk(null);
+    setAskPanelOpen(false);
+  }, [lastAskResult]);
+
+  useEffect(() => {
+    if (!lastAskResult) {
+      return;
+    }
+    const timer = setTimeout(() => closeModal(), 10000);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [lastAskResult, closeModal]);
+
+  useEffect(() => {
+    if (!lastDeclareResult) {
+      return;
+    }
+    const timer = setTimeout(() => closeModal(), 6000);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [lastDeclareResult, closeModal]);
 
   useEffect(() => {
     if (!gameState?.lastMove) {
@@ -185,23 +375,23 @@ export default function GameCodeScreen(): JSX.Element {
 
   useEffect(() => {
     const offAskRequested = socketService.on<IncomingAsk>("game:ask_requested", (payload) => {
-      showNotification(`${payload.askingPlayerName} asked ${payload.targetPlayerName} for ${payload.card.rank}`);
+      setAskPendingGlobal(true);
       if (payload.targetPlayerId === user?.id) {
         setIncomingAsk(payload);
       }
       if (payload.askingPlayerId === user?.id) {
         setPendingOutgoingAsk({ targetPlayerId: payload.targetPlayerId, targetPlayerName: payload.targetPlayerName });
+      } else {
+        openAskAnnouncementPopup({
+          actorName: payload.askingPlayerName,
+          targetName: payload.targetPlayerName,
+          card: payload.card,
+          kind: "ASK_REQUESTED",
+        });
       }
-    });
-    const offAskResolved = socketService.on<{ message?: string }>("game:ask_resolved", (payload) => {
-      if (payload.message) {
-        showNotification(payload.message);
-      }
-      setPendingOutgoingAsk(null);
-      setIncomingAsk(null);
-      setAskPanelOpen(false);
     });
     const offDeclarationStarted = socketService.on<DeclarationStartedPayload>("game:declaration_started", (payload) => {
+      startDeclareTimerPause();
       if (payload.declaringPlayerId === user?.id) {
         return;
       }
@@ -210,39 +400,19 @@ export default function GameCodeScreen(): JSX.Element {
         clearTimeout(declarationPopupTimerRef.current);
       }
       declarationPopupTimerRef.current = setTimeout(() => {
+        markPopupRecentlyClosed();
         setDeclarationPopup(null);
         declarationPopupTimerRef.current = null;
       }, 15000);
     });
-    const offDeclarationResult = socketService.on<DeclarationResultPayload>("game:declaration_result", (payload) => {
-      if (payload.declaringPlayerId === user?.id) {
-        return;
-      }
-      if (declarationResultDelayTimerRef.current) {
-        clearTimeout(declarationResultDelayTimerRef.current);
-      }
-      if (declarationResultHideTimerRef.current) {
-        clearTimeout(declarationResultHideTimerRef.current);
-      }
-      declarationResultDelayTimerRef.current = setTimeout(() => {
-        setDeclarationResultPopup(payload);
-        declarationResultDelayTimerRef.current = null;
-        declarationResultHideTimerRef.current = setTimeout(() => {
-          setDeclarationResultPopup(null);
-          declarationResultHideTimerRef.current = null;
-        }, 5000);
-      }, 3000);
-    });
     return () => {
       offAskRequested();
-      offAskResolved();
       offDeclarationStarted();
-      offDeclarationResult();
     };
-  }, [user?.id]);
+  }, [router, user?.id]);
 
   useEffect(() => {
-    if (!declarationPopup && !declarationResultPopup) {
+    if (!declarationPopup && !gameEventVisible) {
       declarationPulse.value = 0.55;
       return;
     }
@@ -251,7 +421,51 @@ export default function GameCodeScreen(): JSX.Element {
       -1,
       true,
     );
-  }, [declarationPopup, declarationPulse, declarationResultPopup]);
+  }, [declarationPopup, declarationPulse, gameEventVisible]);
+
+  useEffect(() => {
+    if (gameEventVisible || currentGameEvent || gameEventQueue.length === 0) {
+      return;
+    }
+    const [nextEvent, ...rest] = gameEventQueue;
+    setGameEventQueue(rest);
+    setCurrentGameEvent(nextEvent);
+    setGameEventVisible(true);
+    if (gameEventTimerRef.current) {
+      clearTimeout(gameEventTimerRef.current);
+    }
+    gameEventTimerRef.current = setTimeout(() => {
+      handleCloseGameEvent();
+      gameEventTimerRef.current = null;
+    }, nextEvent.autoCloseMs ?? 5000);
+  }, [currentGameEvent, gameEventQueue, gameEventVisible]);
+
+  const handleGameOverClose = (): void => {
+    lockPanels();
+    setGameOver(null);
+    router.replace("/(tabs)/");
+  };
+
+  useEffect(() => {
+    if (!gameOverData) {
+      return;
+    }
+    setCountdown(10);
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          handleGameOverClose();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [gameOverData]);
 
   useEffect(() => {
     return () => {
@@ -265,17 +479,30 @@ export default function GameCodeScreen(): JSX.Element {
       if (declarationResultDelayTimerRef.current) {
         clearTimeout(declarationResultDelayTimerRef.current);
       }
-      if (declarationResultHideTimerRef.current) {
-        clearTimeout(declarationResultHideTimerRef.current);
+      if (gameEventTimerRef.current) {
+        clearTimeout(gameEventTimerRef.current);
+      }
+      if (askAnnouncementTimerRef.current) {
+        clearTimeout(askAnnouncementTimerRef.current);
+      }
+      if (askPanelEnableTimerRef.current) {
+        clearTimeout(askPanelEnableTimerRef.current);
+      }
+      if (panelUnlockTimerRef.current) {
+        clearTimeout(panelUnlockTimerRef.current);
       }
       if (declareActionsBlockTimerRef.current) {
         clearTimeout(declareActionsBlockTimerRef.current);
+      }
+      if (declareTimerPauseRef.current) {
+        clearTimeout(declareTimerPauseRef.current);
       }
     };
   }, []);
 
   const players = gameState?.players ?? [];
   const myPlayer = players.find((player) => player.id === user?.id) ?? null;
+  const isSpectator = Boolean(myPlayer && myPlayer.handCount <= 0);
   const isMyTurn = Boolean(user?.id && gameState?.currentTurnPlayerId === user.id);
   const teamAScore = gameState?.scores?.[Team.TEAM_A] ?? 0;
   const teamBScore = gameState?.scores?.[Team.TEAM_B] ?? 0;
@@ -284,35 +511,41 @@ export default function GameCodeScreen(): JSX.Element {
 
   const askableOpponents = useMemo(() => {
     if (!myPlayer) {
-      return players;
+      return players.filter((player) => player.handCount > 0);
     }
-    return players.filter((player) => player.id !== myPlayer.id && player.team !== myPlayer.team);
+    return players.filter(
+      (player) => player.id !== myPlayer.id && player.team !== myPlayer.team && player.handCount > 0,
+    );
   }, [myPlayer, players]);
 
   const selectedOpponentName =
     askableOpponents.find((player) => player.id === selectedOpponentId)?.displayName ?? "none";
-  const isAskTimeout = askTimeLeft <= 0;
-  const passedTurnPlayer = useMemo(() => {
-    const turnPlayer = players.find((player) => player.id === gameState?.currentTurnPlayerId);
-    if (!turnPlayer) {
-      return null;
-    }
-    return players.find((player) => player.team !== turnPlayer.team) ?? null;
-  }, [gameState?.currentTurnPlayerId, players]);
-  const effectiveTurnPlayerId =
-    isAskTimeout && !pendingOutgoingAsk
-      ? passedTurnPlayer?.id ?? gameState?.currentTurnPlayerId
-      : gameState?.currentTurnPlayerId;
+  const isTurnTimerHidden = askPendingGlobal || declareTimerPaused;
+  const effectiveTurnPlayerId = gameState?.currentTurnPlayerId;
   const effectiveTurnName =
     players.find((player) => player.id === effectiveTurnPlayerId)?.displayName ?? currentTurnName;
   const displayIsMyTurn = Boolean(user?.id && effectiveTurnPlayerId === user.id);
-  const canUseTurnButtons = displayIsMyTurn && !pendingOutgoingAsk && !declareActionsBlocked;
+  const canUseTurnButtons =
+    displayIsMyTurn &&
+    !pendingOutgoingAsk &&
+    !declareActionsBlocked &&
+    !isSpectator &&
+    askPanelEnabled &&
+    !gameEventVisible &&
+    !gameOverData &&
+    !panelLocked &&
+    !lastAskResult &&
+    !lastDeclareResult;
 
   const askCardsForHalfSuit = useMemo(() => {
-    if (!selectedHalfSuit) {
+    if (!selectedHalfSuit || typeof selectedHalfSuit !== "string" || !selectedHalfSuit.includes("_")) {
       return [];
     }
-    const [, suitToken] = selectedHalfSuit.split("_");
+    const splitParts = selectedHalfSuit.split("_");
+    if (splitParts.length < 2) {
+      return [];
+    }
+    const suitToken = splitParts[1];
     const isLow = selectedHalfSuit.startsWith("LOW");
     const suit = suitToken as Card["suit"];
     const ranks = isLow ? RANKS_BY_TIER.LOW : RANKS_BY_TIER.HIGH;
@@ -354,109 +587,124 @@ export default function GameCodeScreen(): JSX.Element {
   }, [moveHistory]);
 
   const canSubmitAsk = Boolean(
-    displayIsMyTurn && selectedOpponentId && selectedHalfSuit && selectedAskCard && !submitting,
+    displayIsMyTurn && !isSpectator && selectedOpponentId && selectedHalfSuit && selectedAskCard && !submitting,
   );
 
   useEffect(() => {
-    if (!gameState?.currentTurnPlayerId) {
+    if (players.length === 0) {
+      return;
+    }
+    const currentHandCounts = players.reduce<Record<string, number>>((acc, player) => {
+      acc[player.id] = player.handCount;
+      return acc;
+    }, {});
+
+    if (Object.keys(previousHandCountsRef.current).length === 0) {
+      previousHandCountsRef.current = currentHandCounts;
       return;
     }
 
-    timeoutSentForTurnRef.current = null;
-    setAskTimeLeft(TURN_ASK_TIMEOUT_SECONDS);
-    const timer = setInterval(() => {
-      setAskTimeLeft((prev) => {
-        if (prev <= 1) {
-          return 0;
+    players.forEach((player) => {
+      const previousCount = previousHandCountsRef.current[player.id];
+      if (
+        typeof previousCount === "number" &&
+        previousCount > 0 &&
+        player.handCount <= 0 &&
+        !announcedOutOfCardsRef.current.has(player.id)
+      ) {
+        announcedOutOfCardsRef.current.add(player.id);
+        const teammate = players.find(
+          (candidate) =>
+            candidate.team === player.team &&
+            candidate.id !== player.id &&
+            candidate.handCount > 0,
+        );
+        const passMessage = `${player.displayName ?? "Player"} has no more cards${
+          teammate ? ` — turn passes to ${teammate.displayName}` : ""
+        }`;
+        if (player.id === user?.id) {
+          if (suppressNextSelfOutOfCardsPopupRef.current) {
+            suppressNextSelfOutOfCardsPopupRef.current = false;
+            return;
+          }
+          enqueueGameEvent({
+            type: "ask_fail",
+            title: "Spectator Mode",
+            message: "You have no more cards and can now spectate.",
+            subMessage: passMessage,
+            autoCloseMs: 5000,
+          });
+        } else {
+          let mergedIntoDeclare = false;
+          setCurrentGameEvent((current) => {
+            if (!current || !current.type.startsWith("declare")) {
+              return current;
+            }
+            mergedIntoDeclare = true;
+            const mergedSubMessage = [current.subMessage, passMessage].filter(Boolean).join("\n");
+            return { ...current, subMessage: mergedSubMessage };
+          });
+          if (!mergedIntoDeclare) {
+            enqueueGameEvent({
+              type: "ask_fail",
+              title: "Player Update",
+              message: passMessage,
+              autoCloseMs: 5000,
+            });
+          }
         }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => {
-      clearInterval(timer);
-    };
-  }, [gameState?.currentTurnPlayerId]);
-
-  useEffect(() => {
-    const currentTurnPlayerId = gameState?.currentTurnPlayerId;
-    if (!gameState?.id || !currentTurnPlayerId || !isMyTurn || pendingOutgoingAsk || askTimeLeft > 0) {
-      return;
-    }
-
-    if (timeoutSentForTurnRef.current === currentTurnPlayerId) {
-      return;
-    }
-    timeoutSentForTurnRef.current = currentTurnPlayerId;
-
-    void timeoutTurn(gameState.id).catch(() => {
-      // Server may reject duplicate timeout requests from lagging clients.
+      }
     });
-  }, [askTimeLeft, gameState?.currentTurnPlayerId, gameState?.id, isMyTurn, pendingOutgoingAsk]);
+
+    previousHandCountsRef.current = currentHandCounts;
+  }, [players, user?.id]);
 
   const submitAsk = async (): Promise<void> => {
-    if (!gameState || !selectedOpponentId || !selectedAskCard || !displayIsMyTurn) {
+    if (!gameState?.id || !selectedOpponentId || !selectedAskCard || !displayIsMyTurn || isSpectator) {
       return;
     }
-    const targetName = askableOpponents.find((player) => player.id === selectedOpponentId)?.displayName ?? "opponent";
     setSubmitting(true);
-    setPendingOutgoingAsk({ targetPlayerId: selectedOpponentId, targetPlayerName: targetName });
     try {
-      await playCard(gameState.id, {
+      socketService.emit("game:play_card", {
+        gameId: gameState.id,
+        roomCode: code,
         targetPlayerId: selectedOpponentId,
         card: selectedAskCard,
       });
-      showNotification(`Ask sent to ${targetName}`);
-      setAskPanelOpen(false);
       setSelectedOpponentId(null);
       setSelectedHalfSuit(null);
       setSelectedSourceCardCode(null);
       setSelectedAskCard(null);
-    } catch (error) {
-      setPendingOutgoingAsk(null);
-      Alert.alert("Ask Error", error instanceof Error ? error.message : "Failed to ask.");
+      setAskPanelOpen(false);
+    } catch {
+      Alert.alert("Ask Error", "Failed to ask.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const submitDeclare = async (): Promise<void> => {
-    if (!gameState || !selectedDeclareHalfSuit || !displayIsMyTurn) {
+  const handleDeclare = async (halfSuit: HalfSuit): Promise<void> => {
+    if (!gameState?.id || !isMyTurn || isSpectator) {
       return;
     }
+    console.log("Declare attempt:", {
+      gameId: gameState?.id,
+      roomCode: code,
+      halfSuit,
+      isMyTurn,
+    });
     setSubmittingDeclare(true);
     try {
-      const result = await declareSet(gameState.id, selectedDeclareHalfSuit);
-      if (result?.gameState) {
-        useGameStore.getState().setGameState(result.gameState);
-      }
-      if (result?.myHand) {
-        useGameStore.getState().setMyHand(result.myHand);
-      }
-      startDeclareActionCooldown();
+      socketService.emit("game:declare", {
+        gameId: gameState.id,
+        roomCode: code,
+        halfSuit,
+      });
       setDeclarePanelOpen(false);
       setSelectedDeclareHalfSuit(null);
-
-      if (declarationResultHideTimerRef.current) {
-        clearTimeout(declarationResultHideTimerRef.current);
-      }
-      setDeclarationResultPopup({
-        gameId: gameState.id,
-        declaringPlayerId: user?.id ?? "",
-        declaringPlayerName: user?.displayName ?? "You",
-        halfSuit: selectedDeclareHalfSuit,
-        success: result.success,
-        scoreDelta: result.scoreDelta,
-        declaringTeam: result.declaringTeam as Team,
-        newScore: result.newScore,
-        message: result.success ? "Declaration successful! +1 point" : "Declaration failed! -1 point",
-      });
-      declarationResultHideTimerRef.current = setTimeout(() => {
-        setDeclarationResultPopup(null);
-        declarationResultHideTimerRef.current = null;
-      }, 5000);
-    } catch (error) {
-      Alert.alert("Declare Error", error instanceof Error ? error.message : "Failed to declare.");
+    } catch (e) {
+      console.log("Declare error:", e);
+      Alert.alert("Declare Error", "Failed to declare.");
     } finally {
       setSubmittingDeclare(false);
     }
@@ -528,10 +776,6 @@ export default function GameCodeScreen(): JSX.Element {
           <Text style={[styles.scoreText, styles.teamAText]}>Team A: {teamAScore}</Text>
           <Text style={styles.roundText}>Round {gameState.round}</Text>
           <Text style={[styles.scoreText, styles.teamBText]}>Team B: {teamBScore}</Text>
-          <View style={styles.scoreTimerWrap}>
-            <Text style={styles.scoreTimerIcon}>⏱</Text>
-            <Text style={styles.scoreTimerText}>{askTimeLeft}s</Text>
-          </View>
         </View>
 
         <View style={styles.playersWrap}>
@@ -551,6 +795,9 @@ export default function GameCodeScreen(): JSX.Element {
                   if (!canOpenAskFromPlayer) {
                     return;
                   }
+                  if (!displayIsMyTurn || !askPanelEnabled || gameEventVisible) {
+                    return;
+                  }
                   setSelectedOpponentId(player.id);
                   setAskPanelOpen(true);
                 }}
@@ -559,7 +806,7 @@ export default function GameCodeScreen(): JSX.Element {
                   <Text style={styles.avatarText}>{getInitials(player.displayName)}</Text>
                 </View>
                 <Text style={styles.playerName} numberOfLines={1}>
-                  {player.displayName}
+                  {player.displayName ?? "Player"}
                 </Text>
                 <Text style={styles.playerCount}>{player.handCount} cards</Text>
                 {isYou ? <Text style={styles.youLabel}>You</Text> : null}
@@ -569,13 +816,15 @@ export default function GameCodeScreen(): JSX.Element {
         </View>
 
         <View style={styles.middleArea}>
-          <Text style={styles.turnText}>
-            {pendingOutgoingAsk
-              ? `Waiting for ${pendingOutgoingAsk.targetPlayerName}...`
-              : displayIsMyTurn
-                ? "YOUR TURN"
-                : `Waiting for ${effectiveTurnName}'s turn`}
-          </Text>
+          {!(displayIsMyTurn && isSpectator) ? (
+            <Text style={styles.turnText}>
+              {pendingOutgoingAsk
+                ? `Waiting for ${pendingOutgoingAsk.targetPlayerName}...`
+                : displayIsMyTurn
+                  ? "YOUR TURN"
+                  : `Waiting for ${effectiveTurnName}'s turn`}
+            </Text>
+          ) : null}
           {notificationText ? <Text style={styles.notice}>{notificationText}</Text> : null}
           {!askPanelOpen && centerAction ? (
             <Animated.Text style={[styles.latestAction, animatedActionStyle]} numberOfLines={1}>
@@ -589,6 +838,9 @@ export default function GameCodeScreen(): JSX.Element {
                 <Pressable
                   style={styles.openAskButton}
                   onPress={() => {
+                    if (!displayIsMyTurn || !askPanelEnabled || gameEventVisible) {
+                      return;
+                    }
                     setAskPanelOpen(true);
                   }}
                 >
@@ -608,10 +860,8 @@ export default function GameCodeScreen(): JSX.Element {
           {displayIsMyTurn && declareActionsBlocked ? (
             <Text style={styles.timeWarning}>Declaration resolving... actions unlock in 15s.</Text>
           ) : null}
-          {isAskTimeout && !pendingOutgoingAsk && !displayIsMyTurn ? (
-            <Text style={styles.timeWarning}>
-              {`Times up! Now its ${effectiveTurnName}'s turn`}
-            </Text>
+          {displayIsMyTurn && isSpectator ? (
+            <Text style={styles.timeWarning}>You are spectating. Ask/Declare are disabled.</Text>
           ) : null}
           <View style={styles.myCardsPreviewWrap}>
             <FlatList
@@ -659,7 +909,26 @@ export default function GameCodeScreen(): JSX.Element {
         </View>
       </View>
 
-      <Modal visible={askPanelOpen} transparent animationType="slide" onRequestClose={() => setAskPanelOpen(false)}>
+      <Modal
+        visible={
+          askPanelOpen &&
+          displayIsMyTurn &&
+          askPanelEnabled &&
+          !gameEventVisible &&
+          !panelLocked &&
+          !lastAskResult &&
+          !lastDeclareResult &&
+          !gameOverData
+        }
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setAskPanelEnabled(false);
+          closeAllPanels();
+          lockPanels();
+          reEnableAskPanelWithDelay();
+        }}
+      >
         <View style={styles.askOverlay}>
           <View style={styles.askBackdrop} />
           <SafeAreaView style={styles.askPanel}>
@@ -669,7 +938,15 @@ export default function GameCodeScreen(): JSX.Element {
             >
               <View style={styles.askHeader}>
                 <Text style={styles.askTitle}>Ask Panel</Text>
-                <Pressable style={styles.closeButtonHitbox} onPress={() => setAskPanelOpen(false)}>
+                <Pressable
+                  style={styles.closeButtonHitbox}
+                  onPress={() => {
+                    setAskPanelEnabled(false);
+                    closeAllPanels();
+                    lockPanels();
+                    reEnableAskPanelWithDelay();
+                  }}
+                >
                   <Text style={styles.closeText}>✕</Text>
                 </Pressable>
               </View>
@@ -706,7 +983,7 @@ export default function GameCodeScreen(): JSX.Element {
                           return;
                         }
                         setSelectedSourceCardCode(`${item.rank}-${item.suit}`);
-                        setSelectedHalfSuit(item.halfSuit);
+                        setSelectedHalfSuit((item.halfSuit as HalfSuit | undefined) ?? null);
                         setSelectedAskCard(null);
                       }}
                     />
@@ -771,7 +1048,10 @@ export default function GameCodeScreen(): JSX.Element {
                 <Pressable
                   style={styles.cancelButton}
                   onPress={() => {
-                    setAskPanelOpen(false);
+                    setAskPanelEnabled(false);
+                    closeAllPanels();
+                    lockPanels();
+                    reEnableAskPanelWithDelay();
                   }}
                 >
                   <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -795,14 +1075,29 @@ export default function GameCodeScreen(): JSX.Element {
         visible={declarePanelOpen}
         transparent
         animationType="slide"
-        onRequestClose={() => setDeclarePanelOpen(false)}
+        onRequestClose={() => {
+          markPopupRecentlyClosed();
+          setAskPanelEnabled(false);
+          closeAllPanels();
+          lockPanels();
+          reEnableAskPanelWithDelay();
+        }}
       >
         <View style={styles.askOverlay}>
           <View style={styles.askBackdrop} />
           <SafeAreaView style={styles.declarePanel}>
             <View style={styles.declareHeader}>
               <Text style={styles.askTitle}>Declare a set</Text>
-              <Pressable style={styles.closeButtonHitbox} onPress={() => setDeclarePanelOpen(false)}>
+              <Pressable
+                style={styles.closeButtonHitbox}
+                onPress={() => {
+                  markPopupRecentlyClosed();
+                  setAskPanelEnabled(false);
+                  closeAllPanels();
+                  lockPanels();
+                  reEnableAskPanelWithDelay();
+                }}
+              >
                 <Text style={styles.closeText}>✕</Text>
               </Pressable>
             </View>
@@ -839,18 +1134,33 @@ export default function GameCodeScreen(): JSX.Element {
                   </Pressable>
                 ))}
               </ScrollView>
+              {selectedDeclareHalfSuit ? (
+                <Text style={styles.declareWarningText}>This will affect your team score!</Text>
+              ) : null}
               <View style={styles.askActions}>
-                <Pressable style={styles.cancelButton} onPress={() => setDeclarePanelOpen(false)}>
+                <Pressable
+                  style={styles.cancelButton}
+                  onPress={() => {
+                    markPopupRecentlyClosed();
+                    setAskPanelEnabled(false);
+                    closeAllPanels();
+                    lockPanels();
+                    reEnableAskPanelWithDelay();
+                  }}
+                >
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.askButton, (!selectedDeclareHalfSuit || submittingDeclare) && styles.askButtonDisabled]}
                   disabled={!selectedDeclareHalfSuit || submittingDeclare}
                   onPress={() => {
-                    void submitDeclare();
+                    if (!selectedDeclareHalfSuit) {
+                      return;
+                    }
+                    void handleDeclare(selectedDeclareHalfSuit);
                   }}
                 >
-                  <Text style={styles.askButtonText}>{submittingDeclare ? "Declaring..." : "Declare"}</Text>
+                  <Text style={styles.askButtonText}>{submittingDeclare ? "Declaring..." : "Confirm Declare"}</Text>
                 </Pressable>
               </View>
             </View>
@@ -862,12 +1172,22 @@ export default function GameCodeScreen(): JSX.Element {
         visible={Boolean(declarationPopup)}
         transparent
         animationType="fade"
-        onRequestClose={() => setDeclarationPopup(null)}
+        onRequestClose={() => {
+          markPopupRecentlyClosed();
+          setAskPanelEnabled(false);
+          closeAllPanels();
+          setDeclarationPopup(null);
+          lockPanels();
+          reEnableAskPanelWithDelay();
+        }}
       >
         <View style={styles.declarationOverlay}>
           <Animated.View style={[styles.declarationGlowLayer, declarationGlowStyle]} />
-          <View style={styles.declarationCard}>
-            <Text style={styles.declarationTitle}>
+          <View style={[styles.declarationCard, styles.declarationAlertCard]}>
+            <Text style={[styles.declarationTitle, styles.declarationAlertTitle]}>
+              Declaration Alert
+            </Text>
+            <Text style={styles.declarationAlertSubTitle}>
               {declarationPopup?.declaringPlayerName} declared a set
             </Text>
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.declarationScrollContent}>
@@ -877,7 +1197,7 @@ export default function GameCodeScreen(): JSX.Element {
                   <View style={styles.declarationCardsRow}>
                     {holder.cards.map((card, index) => (
                       <View key={`${holder.playerId}-${card.rank}-${card.suit}-${index}`} style={styles.declarationCardWrap}>
-                        <CardView card={card} faceUp playable={false} selected={false} width={48} height={70} />
+                        <CardView card={card} faceUp playable={false} selected={false} width={56} height={82} />
                       </View>
                     ))}
                   </View>
@@ -887,11 +1207,16 @@ export default function GameCodeScreen(): JSX.Element {
             <Pressable
               style={styles.declarationDismissButton}
               onPress={() => {
+                markPopupRecentlyClosed();
+                setAskPanelEnabled(false);
+                closeAllPanels();
                 setDeclarationPopup(null);
                 if (declarationPopupTimerRef.current) {
                   clearTimeout(declarationPopupTimerRef.current);
                   declarationPopupTimerRef.current = null;
                 }
+                lockPanels();
+                reEnableAskPanelWithDelay();
               }}
             >
               <Text style={styles.declarationDismissText}>Close</Text>
@@ -901,33 +1226,307 @@ export default function GameCodeScreen(): JSX.Element {
       </Modal>
 
       <Modal
-        visible={Boolean(declarationResultPopup)}
+        visible={gameEventVisible && Boolean(currentGameEvent)}
         transparent
         animationType="fade"
-        onRequestClose={() => setDeclarationResultPopup(null)}
+        onRequestClose={() => {
+          handleCloseGameEvent();
+        }}
       >
         <View style={styles.declarationOverlay}>
           <Animated.View
             style={[
               styles.declarationGlowLayer,
               declarationGlowStyle,
-              declarationResultPopup?.success ? styles.declarationGlowSuccess : styles.declarationGlowFail,
+              currentGameEvent?.type === "declare_success" || currentGameEvent?.type === "ask_success"
+                ? styles.declarationGlowSuccess
+                : styles.declarationGlowFail,
             ]}
           />
-          <View style={[styles.declarationCard, declarationResultPopup?.success ? styles.resultSuccess : styles.resultFail]}>
-            <Text style={styles.declarationTitle}>
-              {declarationResultPopup?.success ? "Set Complete!" : "Wrong Declaration"}
-            </Text>
-            <Text style={styles.resultText}>
-              {declarationResultPopup?.declaringPlayerName}: {declarationResultPopup?.message}
-            </Text>
-            <Text style={styles.resultText}>
-              Score change: {declarationResultPopup && declarationResultPopup.scoreDelta > 0 ? "+" : ""}
-              {declarationResultPopup?.scoreDelta}
-            </Text>
-            <Pressable style={styles.declarationDismissButton} onPress={() => setDeclarationResultPopup(null)}>
+          <View
+            style={[
+              styles.declarationCard,
+              currentGameEvent?.type === "declare_success" || currentGameEvent?.type === "ask_success"
+                ? styles.resultSuccess
+                : styles.resultFail,
+            ]}
+          >
+            <Text style={styles.declarationTitle}>{currentGameEvent?.title}</Text>
+            <Text style={styles.resultText}>{currentGameEvent?.message}</Text>
+            {currentGameEvent?.subMessage ? <Text style={styles.resultText}>{currentGameEvent.subMessage}</Text> : null}
+            <Pressable style={styles.declarationDismissButton} onPress={handleCloseGameEvent}>
               <Text style={styles.declarationDismissText}>Close</Text>
             </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={Boolean(askAnnouncementPopup)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          markPopupRecentlyClosed();
+          setAskPanelEnabled(false);
+          closeAllPanels();
+          setAskAnnouncementPopup(null);
+          lockPanels();
+          reEnableAskPanelWithDelay();
+        }}
+      >
+        <View style={styles.askAnnouncementOverlay}>
+          {(() => {
+            const askKind = askAnnouncementPopup?.kind;
+            const cardToneStyle =
+              askKind === "ASK_REQUESTED"
+                ? styles.askAnnouncementRequestedCard
+                : askKind === "ASK_NO"
+                  ? styles.askAnnouncementNoCard
+                  : askKind === "ASK_GIVE"
+                    ? styles.askAnnouncementGiveCard
+                    : null;
+            const titleToneStyle =
+              askKind === "ASK_REQUESTED"
+                ? styles.askAnnouncementRequestedTitle
+                : askKind === "ASK_NO"
+                  ? styles.askAnnouncementNoTitle
+                  : askKind === "ASK_GIVE"
+                    ? styles.askAnnouncementGiveTitle
+                    : null;
+            const titleText =
+              askKind === "ASK_REQUESTED"
+                ? "Ask Request"
+                : askKind === "ASK_NO"
+                  ? "Ask Response: No"
+                  : askKind === "ASK_GIVE"
+                    ? "Ask Response: Give"
+                    : "Ask Update";
+            return (
+          <View
+            style={[
+              styles.askAnnouncementCard,
+              cardToneStyle,
+            ]}
+          >
+            <Text
+              style={[
+                styles.askAnnouncementTitle,
+                titleToneStyle,
+              ]}
+            >
+              {titleText}
+            </Text>
+            {askAnnouncementPopup ? (
+              <View style={styles.askAnnouncementBody}>
+                <View style={styles.askAnnouncementLine}>
+                  <Text style={styles.askAnnouncementTextStrong}>{askAnnouncementPopup.actorName}</Text>
+                  <Text style={styles.askAnnouncementText}>
+                    {askAnnouncementPopup.kind === "ASK_REQUESTED"
+                      ? " asked for"
+                      : askAnnouncementPopup.kind === "ASK_GIVE"
+                        ? " gave"
+                        : " said no for"}
+                  </Text>
+                </View>
+                <View style={styles.askAnnouncementCardInlineWrap}>
+                  <CardView
+                    card={askAnnouncementPopup.card}
+                    faceUp
+                    selected={false}
+                    playable={false}
+                    width={54}
+                    height={80}
+                  />
+                </View>
+                <View style={styles.askAnnouncementLine}>
+                  <Text style={styles.askAnnouncementText}>
+                    {askAnnouncementPopup.kind === "ASK_REQUESTED"
+                      ? `from ${askAnnouncementPopup.targetName}`
+                      : `to ${askAnnouncementPopup.targetName}`}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+            <Pressable
+              style={styles.declarationDismissButton}
+              onPress={() => {
+                markPopupRecentlyClosed();
+                setAskPanelEnabled(false);
+                closeAllPanels();
+                setAskAnnouncementPopup(null);
+                if (askAnnouncementTimerRef.current) {
+                  clearTimeout(askAnnouncementTimerRef.current);
+                  askAnnouncementTimerRef.current = null;
+                }
+                lockPanels();
+                reEnableAskPanelWithDelay();
+              }}
+            >
+              <Text style={styles.declarationDismissText}>Close</Text>
+            </Pressable>
+          </View>
+            );
+          })()}
+        </View>
+      </Modal>
+
+      <Modal
+        visible={
+          !!lastAskResult &&
+          !!lastAskResult.askingPlayerName &&
+          !!lastAskResult.targetPlayerName &&
+          !!lastAskResult.card &&
+          !modalLocked
+        }
+        transparent
+        animationType="fade"
+      >
+        <View style={styles.askResultOverlay}>
+          <View
+            style={[
+              styles.askResultCard,
+              { borderColor: lastAskResult?.targetHadCard ? "#22c55e" : "#ef4444" },
+            ]}
+          >
+            <Text style={styles.askResultIcon}>{lastAskResult?.targetHadCard ? "✅" : "❌"}</Text>
+            <Text style={styles.askResultMeta}>
+              {lastAskResult?.askingPlayerName ?? "Player"} asked {lastAskResult?.targetPlayerName ?? "Player"}
+            </Text>
+            {lastAskResult?.card ? <CardDisplay card={lastAskResult.card} size="large" /> : null}
+            <Text
+              style={[
+                styles.askResultTitle,
+                { color: lastAskResult?.targetHadCard ? "#22c55e" : "#ef4444" },
+              ]}
+            >
+              {lastAskResult?.targetHadCard
+                ? `${lastAskResult.targetPlayerName ?? "Player"} gave it!`
+                : `${lastAskResult?.targetPlayerName ?? "Player"} said No!`}
+            </Text>
+            <Text style={styles.askResultCardName}>{lastAskResult?.cardName}</Text>
+            <Text style={styles.askResultTurnInfo}>
+              {lastAskResult?.targetHadCard
+                ? `${lastAskResult.askingPlayerName ?? "Player"} plays again`
+                : `Turn passes to ${lastAskResult?.targetPlayerName ?? "Player"}`}
+            </Text>
+            <Pressable style={styles.askResultButton} onPress={closeModal}>
+              <Text style={styles.askResultButtonText}>OK</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={!!lastDeclareResult && !!lastDeclareResult.halfSuit && !!lastDeclareResult.winningTeam && !modalLocked}
+        transparent
+        animationType="fade"
+      >
+        <View style={styles.askResultOverlay}>
+          <View
+            style={[
+              styles.askResultCard,
+              { borderColor: lastDeclareResult?.correct ? "#22c55e" : "#ef4444" },
+            ]}
+          >
+            <Text style={styles.askResultIcon}>{lastDeclareResult?.correct ? "📚" : "💥"}</Text>
+            <Text
+              style={[
+                styles.declareResultTitle,
+                { color: lastDeclareResult?.correct ? "#22c55e" : "#ef4444" },
+              ]}
+            >
+              {lastDeclareResult?.correct ? "✅ Correct Declaration!" : "❌ Wrong Declaration!"}
+            </Text>
+            <Text style={styles.askResultMeta}>
+              {lastDeclareResult?.declaringPlayerName ?? "Player"} declared {lastDeclareResult?.halfSuit?.replace("_", " ")}
+            </Text>
+            <View style={styles.declareCardsWrap}>
+              {getHalfSuitCards(lastDeclareResult?.halfSuit as HalfSuit).map((card) => (
+                <CardDisplay key={cardToCode(card)} card={card} size="small" />
+              ))}
+            </View>
+            <View style={styles.declareBookWrap}>
+              <Text style={styles.declareBookLabel}>Score awarded to</Text>
+              <Text
+                style={[
+                  styles.declareBookTeam,
+                  { color: lastDeclareResult?.winningTeam === "TEAM_A" ? "#3b82f6" : "#ef4444" },
+                ]}
+              >
+                {lastDeclareResult?.winningTeam === "TEAM_A" ? "Team A" : "Team B"}
+              </Text>
+            </View>
+            {lastDeclareResult?.ranOutOfCards ? (
+              <Text style={styles.declareWarningText}>
+                Player ran out of cards — turn passes to their teammate
+              </Text>
+            ) : null}
+            <Pressable style={styles.askResultButton} onPress={closeModal}>
+              <Text style={styles.askResultButtonText}>OK</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={Boolean(gameOverData)} transparent animationType="fade" onRequestClose={handleGameOverClose}>
+        <View style={styles.gameOverOverlay}>
+          <View
+            style={[
+              styles.gameOverCard,
+              {
+                borderColor:
+                  gameOverData?.winner === "DRAW"
+                    ? "#f59e0b"
+                    : gameOverData?.winner === myPlayer?.team
+                      ? "#22c55e"
+                      : "#ef4444",
+              },
+            ]}
+          >
+            <Text style={styles.gameOverIcon}>
+              {gameOverData?.winner === "DRAW" ? "🤝" : gameOverData?.winner === myPlayer?.team ? "🏆" : "😔"}
+            </Text>
+            <Text
+              style={[
+                styles.gameOverTitle,
+                {
+                  color:
+                    gameOverData?.winner === "DRAW"
+                      ? "#f59e0b"
+                      : gameOverData?.winner === myPlayer?.team
+                        ? "#22c55e"
+                        : "#ef4444",
+                },
+              ]}
+            >
+              {gameOverData?.winner === "DRAW"
+                ? "IT'S A DRAW! 🤝"
+                : gameOverData?.winner === myPlayer?.team
+                  ? "YOUR TEAM WINS!"
+                  : "YOU LOST"}
+            </Text>
+            <Text style={styles.gameOverSubTitle}>
+              {gameOverData?.winner === "DRAW"
+                ? "Both teams finished with equal scores"
+                : `${gameOverData?.winner === "TEAM_A" ? "Team A" : "Team B"} wins the game`}
+            </Text>
+            <Text style={styles.gameOverStatusText}>
+              Status: {gameOverData?.gameStatus ?? "FINISHED"}
+            </Text>
+            <View style={styles.gameOverScoreRow}>
+              <View style={styles.gameOverScoreItem}>
+                <Text style={styles.gameOverScoreA}>{gameOverData?.teamABooks ?? 0}</Text>
+                <Text style={styles.gameOverScoreLabel}>Team A Score</Text>
+              </View>
+              <View style={styles.gameOverVsWrap}>
+                <Text style={styles.gameOverVs}>vs</Text>
+              </View>
+              <View style={styles.gameOverScoreItem}>
+                <Text style={styles.gameOverScoreB}>{gameOverData?.teamBBooks ?? 0}</Text>
+                <Text style={styles.gameOverScoreLabel}>Team B Score</Text>
+              </View>
+            </View>
+            <Text style={styles.gameOverCountdown}>Returning to home in {countdown}s...</Text>
           </View>
         </View>
       </Modal>
@@ -1202,7 +1801,7 @@ const styles = StyleSheet.create({
   },
   askBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.7)",
+    backgroundColor: "transparent",
   },
   askPanelScrollContent: {
     paddingTop: 10,
@@ -1326,20 +1925,20 @@ const styles = StyleSheet.create({
   responseButtonText: { color: "#fff", fontWeight: "700" },
   declarationOverlay: {
     flex: 1,
-    backgroundColor: "rgba(2,6,23,0.8)",
+    backgroundColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 18,
   },
   declarationGlowLayer: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(245,158,11,0.2)",
+    backgroundColor: "transparent",
   },
   declarationGlowSuccess: {
-    backgroundColor: "rgba(34,197,94,0.2)",
+    backgroundColor: "transparent",
   },
   declarationGlowFail: {
-    backgroundColor: "rgba(239,68,68,0.2)",
+    backgroundColor: "transparent",
   },
   declarationCard: {
     width: "100%",
@@ -1353,10 +1952,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     gap: 10,
   },
+  declarationAlertCard: {
+    borderColor: "#f59e0b",
+    backgroundColor: "#1e293b",
+  },
   declarationTitle: {
     color: "#f8fafc",
     fontSize: 18,
     fontWeight: "800",
+  },
+  declarationAlertTitle: {
+    color: "#fbbf24",
+  },
+  declarationAlertSubTitle: {
+    color: "#e2e8f0",
+    fontWeight: "700",
+    fontSize: 13,
+    marginTop: -2,
   },
   declarationScrollContent: {
     paddingBottom: 8,
@@ -1366,7 +1978,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#334155",
-    backgroundColor: "rgba(15,23,42,0.8)",
+    backgroundColor: "#0f172a",
     paddingVertical: 10,
     paddingHorizontal: 10,
     gap: 8,
@@ -1379,13 +1991,14 @@ const styles = StyleSheet.create({
   declarationCardsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    alignItems: "flex-start",
+    alignItems: "center",
     overflow: "visible",
     paddingTop: 6,
-    minHeight: 78,
+    minHeight: 92,
   },
   declarationCardWrap: {
-    overflow: "visible",
+    overflow: "hidden",
+    borderRadius: 8,
     marginRight: 8,
     marginBottom: 8,
   },
@@ -1396,7 +2009,7 @@ const styles = StyleSheet.create({
     borderColor: "#f59e0b",
     paddingHorizontal: 14,
     paddingVertical: 8,
-    backgroundColor: "rgba(245,158,11,0.14)",
+    backgroundColor: "#7c2d12",
   },
   declarationDismissText: {
     color: "#f8fafc",
@@ -1412,6 +2025,243 @@ const styles = StyleSheet.create({
   resultText: {
     color: "#e2e8f0",
     fontWeight: "700",
+    fontSize: 13,
+  },
+  askAnnouncementOverlay: {
+    flex: 1,
+    backgroundColor: "transparent",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  askAnnouncementCard: {
+    width: "100%",
+    maxWidth: 430,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#334155",
+    backgroundColor: "#1e293b",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 10,
+  },
+  askAnnouncementRequestedCard: {
+    borderColor: "#3b82f6",
+    backgroundColor: "#1e3a8a",
+  },
+  askAnnouncementNoCard: {
+    borderColor: "#ef4444",
+    backgroundColor: "#7f1d1d",
+  },
+  askAnnouncementGiveCard: {
+    borderColor: "#22c55e",
+    backgroundColor: "#14532d",
+  },
+  askAnnouncementTitle: {
+    color: "#f8fafc",
+    fontWeight: "800",
+    fontSize: 16,
+  },
+  askAnnouncementRequestedTitle: {
+    color: "#93c5fd",
+  },
+  askAnnouncementNoTitle: {
+    color: "#fca5a5",
+  },
+  askAnnouncementGiveTitle: {
+    color: "#86efac",
+  },
+  askAnnouncementText: {
+    color: "#e2e8f0",
+    fontWeight: "700",
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  askAnnouncementBody: {
+    gap: 8,
+    alignItems: "center",
+  },
+  askAnnouncementLine: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  askAnnouncementTextStrong: {
+    color: "#f8fafc",
+    fontWeight: "900",
+    fontSize: 14,
+  },
+  askAnnouncementCardInlineWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 2,
+  },
+  askResultOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  askResultCard: {
+    backgroundColor: "#1e293b",
+    borderRadius: 20,
+    padding: 24,
+    width: "100%",
+    maxWidth: 340,
+    alignItems: "center",
+    borderWidth: 2,
+  },
+  askResultIcon: {
+    fontSize: 40,
+    marginBottom: 8,
+  },
+  askResultMeta: {
+    fontSize: 13,
+    color: "#94a3b8",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  askResultTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  askResultCardName: {
+    fontSize: 14,
+    color: "#cbd5e1",
+    marginBottom: 20,
+  },
+  askResultTurnInfo: {
+    fontSize: 12,
+    color: "#64748b",
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  askResultButton: {
+    backgroundColor: "#f59e0b",
+    borderRadius: 10,
+    paddingHorizontal: 32,
+    paddingVertical: 10,
+    width: "100%",
+    alignItems: "center",
+  },
+  askResultButtonText: {
+    color: "#0f172a",
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  declareResultTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  declareCardsWrap: {
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: 16,
+    flexWrap: "wrap",
+    justifyContent: "center",
+  },
+  declareBookWrap: {
+    backgroundColor: "#0f172a",
+    borderRadius: 10,
+    padding: 12,
+    width: "100%",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  declareBookLabel: {
+    color: "#94a3b8",
+    fontSize: 12,
+  },
+  declareBookTeam: {
+    fontWeight: "700",
+    fontSize: 16,
+    marginTop: 4,
+  },
+  declareWarningText: {
+    color: "#f59e0b",
+    fontSize: 13,
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  gameOverOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  gameOverCard: {
+    backgroundColor: "#1e293b",
+    borderRadius: 20,
+    padding: 32,
+    width: "100%",
+    alignItems: "center",
+    borderWidth: 2,
+  },
+  gameOverIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  gameOverTitle: {
+    fontSize: 28,
+    fontWeight: "800",
+    marginBottom: 8,
+  },
+  gameOverSubTitle: {
+    fontSize: 16,
+    color: "#94a3b8",
+    marginBottom: 24,
+  },
+  gameOverStatusText: {
+    fontSize: 12,
+    color: "#cbd5e1",
+    marginBottom: 12,
+    fontWeight: "700",
+  },
+  gameOverScoreRow: {
+    flexDirection: "row",
+    gap: 24,
+    marginBottom: 32,
+    backgroundColor: "#0f172a",
+    borderRadius: 12,
+    padding: 16,
+    width: "100%",
+    justifyContent: "center",
+  },
+  gameOverScoreItem: {
+    alignItems: "center",
+  },
+  gameOverScoreA: {
+    color: "#3b82f6",
+    fontSize: 36,
+    fontWeight: "800",
+  },
+  gameOverScoreB: {
+    color: "#ef4444",
+    fontSize: 36,
+    fontWeight: "800",
+  },
+  gameOverScoreLabel: {
+    color: "#94a3b8",
+    fontSize: 12,
+  },
+  gameOverVsWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  gameOverVs: {
+    color: "#f59e0b",
+    fontSize: 20,
+  },
+  gameOverCountdown: {
+    color: "#64748b",
     fontSize: 13,
   },
 });

@@ -30,6 +30,9 @@ export const useAuth = (): UseAuthResult => {
           id: result.userId,
           displayName: result.displayName,
           avatarUrl: result.avatarUrl,
+          gamesPlayed: result.gamesPlayed,
+          gamesWon: result.gamesWon,
+          winRate: result.winRate,
         },
         result.tokens.accessToken,
       );

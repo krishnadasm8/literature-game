@@ -23,6 +23,15 @@ const removeHalfSuitCards = (handsSnapshot, halfSuit) => {
     }
     return next;
 };
+const pickWinner = (scores) => {
+    if ((scores.TEAM_A ?? 0) > (scores.TEAM_B ?? 0)) {
+        return "TEAM_A";
+    }
+    if ((scores.TEAM_B ?? 0) > (scores.TEAM_A ?? 0)) {
+        return "TEAM_B";
+    }
+    return "DRAW";
+};
 router.get("/:id", auth_middleware_1.authMiddleware, async (req, res) => {
     const userId = req.user?.id;
     if (!userId) {
@@ -89,6 +98,14 @@ router.post("/:id/move", auth_middleware_1.authMiddleware, async (req, res) => {
         const handsSnapshot = (game.handsSnapshot ?? {});
         const askingHand = [...(handsSnapshot[userId] ?? [])];
         const targetHand = [...(handsSnapshot[targetPlayerId] ?? [])];
+        if (askingHand.length === 0) {
+            res.status(400).json({ error: "You are out of cards and can only spectate." });
+            return;
+        }
+        if (targetHand.length === 0) {
+            res.status(400).json({ error: "That opponent is out of cards and cannot be asked." });
+            return;
+        }
         const hasHalfSuitCard = askingHand.some((owned) => owned.halfSuit === card.halfSuit);
         if (!hasHalfSuitCard) {
             res.status(400).json({ error: "You must hold at least one card from that half-suit." });
@@ -199,12 +216,14 @@ router.post("/:id/respond", auth_middleware_1.authMiddleware, async (req, res) =
         (0, sockets_1.emitToGameNamespace)(pending.roomCode, "game:ask_resolved", {
             gameId,
             askingPlayerId: pending.askingPlayerId,
+            askingPlayerName: pending.askingPlayerName,
             targetPlayerId: pending.targetPlayerId,
+            targetPlayerName: pending.targetPlayerName,
             card: pending.card,
             result: acceptedGive ? "GIVE" : "NO",
             message: acceptedGive
-                ? `${pending.targetPlayerName} gave ${pending.card.rank} of ${pending.card.suit}`
-                : `${pending.targetPlayerName} said no`,
+                ? `${pending.targetPlayerName} gave ${pending.card.rank} of ${pending.card.suit} to ${pending.askingPlayerName}`
+                : `${pending.targetPlayerName} said no for ${pending.card.rank} of ${pending.card.suit}`,
         });
         const askingState = await gameManager_1.gameManager.getGameState({
             gameIdOrRoomCode: gameId,
@@ -272,6 +291,11 @@ router.post("/:id/declare", auth_middleware_1.authMiddleware, async (req, res) =
         const declaringPlayer = orderedPlayers[declaringIndex];
         const declaringTeam = getPlayerTeam(declaringPlayer, declaringIndex);
         const handsSnapshot = (game.handsSnapshot ?? {});
+        const declaringHand = [...(handsSnapshot[userId] ?? [])];
+        if (declaringHand.length === 0) {
+            res.status(400).json({ error: "You are out of cards and can only spectate." });
+            return;
+        }
         const halfSuitCardsByPlayer = orderedPlayers
             .map((player, index) => ({
             playerId: player.userId,
@@ -312,15 +336,30 @@ router.post("/:id/declare", auth_middleware_1.authMiddleware, async (req, res) =
                 declaredSet: halfSuit,
             },
         });
+        const declaringTeamPlayers = orderedPlayers.filter((player, index) => getPlayerTeam(player, index) === declaringTeam);
+        const teammateWithCards = declaringTeamPlayers.find((player) => player.userId !== userId && (nextHands[player.userId] ?? []).length > 0);
+        const declaringPlayerHasCards = (nextHands[userId] ?? []).length > 0;
+        const declaringTeamHasAnyCards = declaringTeamPlayers.some((player) => (nextHands[player.userId] ?? []).length > 0);
+        const everyoneOutOfCards = orderedPlayers.every((player) => (nextHands[player.userId] ?? []).length === 0);
+        const isGameOver = !declaringTeamHasAnyCards || everyoneOutOfCards;
+        const nextTurnPlayerId = declaringPlayerHasCards ? userId : teammateWithCards?.userId ?? userId;
+        const winner = pickWinner(nextScores);
         await prisma.game.update({
             where: { id: game.id },
             data: {
+                status: isGameOver ? "FINISHED" : "PLAYING",
                 scores: nextScores,
                 books: nextBooks,
                 handsSnapshot: nextHands,
-                currentTurnPlayerId: userId,
+                currentTurnPlayerId: nextTurnPlayerId,
             },
         });
+        if (isGameOver) {
+            await prisma.room.update({
+                where: { id: game.roomId },
+                data: { status: "FINISHED" },
+            });
+        }
         const declaredCardsByPlayer = halfSuitCardsByPlayer.map((entry) => ({
             playerId: entry.playerId,
             playerName: entry.playerName,
@@ -347,6 +386,15 @@ router.post("/:id/declare", auth_middleware_1.authMiddleware, async (req, res) =
             newScore: nextScores[declaringTeam],
             message: success ? "Declaration successful! +1 point" : "Declaration failed! -1 point",
         });
+        if (!isGameOver && nextTurnPlayerId !== userId) {
+            const nextPlayer = orderedPlayers.find((player) => player.userId === nextTurnPlayerId);
+            (0, sockets_1.emitToGameNamespace)(game.room.roomCode, "game:turn_changed", {
+                gameId: game.id,
+                currentTurnPlayerId: nextTurnPlayerId,
+                currentTurnPlayerName: nextPlayer?.user.displayName ?? "Teammate",
+                reason: "DECLARE_EMPTY_HAND",
+            });
+        }
         const updatedState = await gameManager_1.gameManager.getGameState({
             gameIdOrRoomCode: game.id,
             requestingPlayerId: userId,
@@ -354,12 +402,22 @@ router.post("/:id/declare", auth_middleware_1.authMiddleware, async (req, res) =
         (0, sockets_1.emitToGameNamespace)(game.room.roomCode, "game:state_update", {
             gameState: updatedState?.gameState,
         });
+        if (isGameOver) {
+            (0, sockets_1.emitToGameNamespace)(game.room.roomCode, "game:over", {
+                roomCode: game.room.roomCode,
+                gameId: game.id,
+                winnerTeam: winner,
+                scores: nextScores,
+            });
+        }
         res.status(200).json({
             ok: true,
             success,
             scoreDelta,
             declaringTeam,
             newScore: nextScores[declaringTeam],
+            isGameOver,
+            winnerTeam: winner,
             declaredCardsByPlayer,
             gameState: updatedState?.gameState,
             myHand: updatedState?.myHand ?? [],

@@ -28,8 +28,8 @@ export default function HomeScreen(): JSX.Element {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
 
-  const gamesPlayed = 0;
-  const wins = 0;
+  const gamesPlayed = user?.gamesPlayed ?? 0;
+  const wins = user?.gamesWon ?? 0;
   const winRate = gamesPlayed > 0 ? Math.round((wins / gamesPlayed) * 100) : 0;
   const recentGames = useMemo(() => [] as Array<{ id: string }>, []);
 

@@ -33,6 +33,7 @@ export interface GameState {
   books: Record<Team, HalfSuit[]>;
   lastMove?: MoveRecord;
   round: number;
+  lastDeclaredTeam?: Team;
 }
 
 export interface ValidationResult {
@@ -144,6 +145,29 @@ const selectNextTurnFromTeam = (gameState: GameState, team: Team): string => {
   return (withCards ?? teamPlayers[0] ?? gameState.players[0]).id;
 };
 
+export const getNextTurnAfterEmpty = (
+  gameState: Pick<GameState, "players" | "hands">,
+  emptyPlayerId: string,
+): string | null => {
+  const emptyPlayer = gameState.players.find((player) => player.id === emptyPlayerId);
+  if (!emptyPlayer) {
+    return null;
+  }
+
+  const teammatesWithCards = gameState.players.filter(
+    (player) =>
+      player.team === emptyPlayer.team &&
+      player.id !== emptyPlayerId &&
+      ((gameState.hands[player.id] ?? []).length > 0),
+  );
+
+  if (teammatesWithCards.length > 0) {
+    return teammatesWithCards[0].id;
+  }
+
+  return null;
+};
+
 export const isValidAsk = (
   gameState: GameState,
   askingPlayerId: string,
@@ -246,11 +270,23 @@ export const applyAsk = (
     nextHands[askingPlayerId] = [...(nextHands[askingPlayerId] ?? []), card];
   }
 
+  const candidateTurnPlayerId = targetHasCard ? askingPlayerId : targetPlayerId;
+  const resolvedTurnPlayerId =
+    (nextHands[candidateTurnPlayerId] ?? []).length > 0
+      ? candidateTurnPlayerId
+      : (getNextTurnAfterEmpty(
+          {
+            players: gameState.players,
+            hands: nextHands,
+          },
+          candidateTurnPlayerId,
+        ) ?? candidateTurnPlayerId);
+
   const nextState: GameState = {
     ...gameState,
     hands: nextHands,
     players: updateHandCounts(gameState.players, nextHands),
-    currentTurnPlayerId: targetHasCard ? askingPlayerId : targetPlayerId,
+    currentTurnPlayerId: resolvedTurnPlayerId,
     lastMove: {
       id: `move-${Date.now()}`,
       gameId: gameState.id,
@@ -312,20 +348,34 @@ export const applyDeclare = (
   };
   nextScores[winningTeam] += 1;
 
+  const postDeclarePlayers = updateHandCounts(gameState.players, nextHands);
+  const defaultTurnPlayerId = selectNextTurnFromTeam(
+    {
+      ...gameState,
+      hands: nextHands,
+      players: postDeclarePlayers,
+    },
+    winningTeam,
+  );
+  const resolvedTurnPlayerId =
+    (nextHands[defaultTurnPlayerId] ?? []).length > 0
+      ? defaultTurnPlayerId
+      : (getNextTurnAfterEmpty(
+          {
+            players: postDeclarePlayers,
+            hands: nextHands,
+          },
+          defaultTurnPlayerId,
+        ) ?? defaultTurnPlayerId);
+
   const stateAfterDeclare: GameState = {
     ...gameState,
     hands: nextHands,
-    players: updateHandCounts(gameState.players, nextHands),
+    players: postDeclarePlayers,
     books: nextBooks,
     scores: nextScores,
-    currentTurnPlayerId: selectNextTurnFromTeam(
-      {
-        ...gameState,
-        hands: nextHands,
-        players: updateHandCounts(gameState.players, nextHands),
-      },
-      winningTeam,
-    ),
+    currentTurnPlayerId: resolvedTurnPlayerId,
+    lastDeclaredTeam: declaringTeam,
     lastMove: {
       id: `move-${Date.now()}`,
       gameId: gameState.id,
@@ -337,7 +387,7 @@ export const applyDeclare = (
     },
   };
 
-  if (isGameOver(stateAfterDeclare)) {
+  if (isGameOver(stateAfterDeclare, declaringTeam)) {
     return {
       ...stateAfterDeclare,
       status: "FINISHED",
@@ -380,9 +430,27 @@ export const getValidMoves = (gameState: GameState, playerId: string): ValidMove
   };
 };
 
-export const isGameOver = (gameState: GameState): boolean => {
+export const isGameOver = (gameState: GameState, lastDeclaredTeam?: Team): boolean => {
   const claimedBooks = TEAM_IDS.reduce((count, team) => count + gameState.books[team].length, 0);
-  return claimedBooks >= 8;
+  if (claimedBooks >= 8) {
+    return true;
+  }
+
+  const anyCardsLeft = gameState.players.some((player) => (gameState.hands[player.id] ?? []).length > 0);
+  if (!anyCardsLeft) {
+    return true;
+  }
+
+  if (lastDeclaredTeam) {
+    const declaringTeamHasCards = gameState.players
+      .filter((player) => player.team === lastDeclaredTeam)
+      .some((player) => (gameState.hands[player.id] ?? []).length > 0);
+    if (!declaringTeamHasCards) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
 export const getWinner = (gameState: GameState): Team | "DRAW" | null => {

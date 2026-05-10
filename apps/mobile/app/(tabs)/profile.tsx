@@ -28,7 +28,7 @@ export default function ProfileScreen(): JSX.Element {
       { label: "Games Played", value: "0" },
       { label: "Games Won", value: "0" },
       { label: "Win Rate", value: "0%" },
-      { label: "Books Declared", value: "0" },
+      { label: "Score Declared", value: "0" },
     ],
     [],
   );

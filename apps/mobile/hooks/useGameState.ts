@@ -1,19 +1,26 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
-import { useRouter } from "expo-router";
 
 import type { Card, GameState } from "@shared/src";
 
 import { useGameStore } from "../store/gameStore";
 import { getGameState } from "../services/gameService";
 import { socketService } from "../services/socket";
+import { useAuthStore } from "../store/authStore";
 
 export const useGameState = (roomCode?: string): void => {
-  const router = useRouter();
   const setGameState = useGameStore((state) => state.setGameState);
   const setMyHand = useGameStore((state) => state.setMyHand);
+  const setLastAskResult = useGameStore((state) => state.setLastAskResult);
+  const setLastDeclareResult = useGameStore((state) => state.setLastDeclareResult);
+  const setGameOver = useGameStore((state) => state.setGameOver);
+  const updateUserStats = useAuthStore((state) => state.updateUserStats);
+  const userId = useAuthStore((state) => state.user?.id);
+  const askResultShownRef = useRef(false);
+  const askResultKeyRef = useRef<string | null>(null);
+  const lastAskResultAtRef = useRef(0);
 
   useEffect(() => {
     const loadInitialState = async () => {
@@ -74,28 +81,91 @@ export const useGameState = (roomCode?: string): void => {
       },
     );
 
-    const offGameOver = socketService.on<{ roomCode: string }>("game:over", (payload) => {
-      const roomCode = payload.roomCode;
-      if (roomCode) {
-        router.push(`/game/${roomCode}/result`);
-      }
+    const offHandUpdate = socketService.on<{ hand: Card[] }>("game:hand_update", (data) => {
+      useGameStore.getState().setMyHand(data.hand);
     });
 
-    const offAskResolved = socketService.on("game:ask_resolved", async () => {
-      if (!roomCode) {
+    const offAskResolved = socketService.on<{
+      success: boolean;
+      targetHadCard: boolean;
+      card: Card;
+      cardName: string;
+      askingPlayerId: string;
+      targetPlayerName: string;
+      targetPlayerId: string;
+      askingPlayerName: string;
+      nextTurnPlayerId: string;
+    }>("game:ask_resolved", (data) => {
+      if (useGameStore.getState().modalLocked) {
+        console.log("ask_resolved blocked by modal lock");
         return;
       }
-      try {
-        const room = await getGameState(roomCode);
-        if (room?.gameState) {
-          useGameStore.getState().setGameState(room.gameState);
-        }
-        if (room?.myHand) {
-          useGameStore.getState().setMyHand(room.myHand);
-        }
-      } catch {
-        // Best-effort refresh on ask resolve.
+      if (
+        !data?.askingPlayerId ||
+        !data?.targetPlayerId ||
+        !data?.askingPlayerName ||
+        !data?.targetPlayerName ||
+        !data?.card ||
+        !data?.card.rank ||
+        !data?.card.suit
+      ) {
+        return;
       }
+      if (data.askingPlayerName === "Player" && data.targetPlayerName === "Player") {
+        return;
+      }
+      const askKey = `${data.askingPlayerId}:${data.targetPlayerId}:${data.card.rank}:${data.card.suit}`;
+      const now = Date.now();
+      if (askResultKeyRef.current === askKey && now - lastAskResultAtRef.current < 12000) {
+        return;
+      }
+      if (askResultShownRef.current) {
+        return;
+      }
+      askResultShownRef.current = true;
+      askResultKeyRef.current = askKey;
+      lastAskResultAtRef.current = now;
+      setLastAskResult({
+        ...data,
+        isForMe: data.askingPlayerId === userId || data.targetPlayerId === userId,
+      });
+      setTimeout(() => {
+        askResultShownRef.current = false;
+      }, 5000);
+    });
+
+    const offDeclareResult = socketService.on<{
+      correct: boolean;
+      halfSuit: string;
+      winningTeam: string;
+      declaringPlayerId: string;
+      declaringPlayerName: string;
+      ranOutOfCards: boolean;
+      nextTurnPlayerId: string;
+    }>("game:declare_result", (data) => {
+      if (useGameStore.getState().modalLocked) {
+        console.log("declare_result blocked by modal lock");
+        return;
+      }
+      setLastDeclareResult(data);
+    });
+
+    const offGameOver = socketService.on<{
+      winner: string;
+      teamABooks: number;
+      teamBBooks: number;
+      scores: Record<string, number>;
+      gameStatus?: string;
+      playerStats?: Record<string, { gamesPlayed: number; gamesWon: number; winRate: number }>;
+    }>("game:over", (data) => {
+      if (userId && data.playerStats?.[userId]) {
+        updateUserStats(data.playerStats[userId]);
+      }
+      setGameOver(data);
+    });
+
+    const offGameError = socketService.on<{ message: string }>("game:error", (data) => {
+      console.error("SOCKET game:error received:", data.message);
     });
 
     return () => {
@@ -104,9 +174,12 @@ export const useGameState = (roomCode?: string): void => {
       }
       offStateUpdate();
       offTurnChanged();
-      offGameOver();
+      offHandUpdate();
       offAskResolved();
+      offDeclareResult();
+      offGameOver();
+      offGameError();
       socket.disconnect();
     };
-  }, [roomCode, router, setGameState, setMyHand]);
+  }, [roomCode, setGameState, setMyHand, setGameOver, setLastAskResult, setLastDeclareResult, updateUserStats, userId]);
 };

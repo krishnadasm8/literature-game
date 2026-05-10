@@ -9,6 +9,9 @@ export interface GoogleSignInResult {
   userId: string;
   displayName: string;
   avatarUrl?: string;
+  gamesPlayed: number;
+  gamesWon: number;
+  winRate: number;
   tokens: AuthTokens;
 }
 
@@ -19,6 +22,8 @@ interface BackendGoogleAuthResponse {
     id: string;
     displayName: string;
     avatarUrl?: string | null;
+    gamesPlayed: number;
+    gamesWon: number;
   };
 }
 
@@ -31,6 +36,12 @@ export const googleSignIn = async (idToken: string): Promise<GoogleSignInResult>
     userId: response.data.user.id,
     displayName: response.data.user.displayName,
     avatarUrl: response.data.user.avatarUrl ?? undefined,
+    gamesPlayed: response.data.user.gamesPlayed ?? 0,
+    gamesWon: response.data.user.gamesWon ?? 0,
+    winRate:
+      (response.data.user.gamesPlayed ?? 0) > 0
+        ? Math.round(((response.data.user.gamesWon ?? 0) / (response.data.user.gamesPlayed ?? 1)) * 100)
+        : 0,
     tokens: {
       accessToken: response.data.accessToken,
       refreshToken: response.data.refreshToken,

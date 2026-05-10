@@ -32,6 +32,13 @@ const SUIT_SYMBOL_MAP: Record<Suit, string> = {
   [Suit.SPADES]: "♠",
 };
 
+const SUIT_CODE_MAP: Record<Suit, string> = {
+  [Suit.CLUBS]: "C",
+  [Suit.DIAMONDS]: "D",
+  [Suit.HEARTS]: "H",
+  [Suit.SPADES]: "S",
+};
+
 const RANK_LABEL_MAP: Record<Rank, string> = {
   [Rank.TWO]: "2",
   [Rank.THREE]: "3",
@@ -77,4 +84,23 @@ export const sortHand = (hand: Card[]): Card[] => {
 
     return rankIndex(a.rank) - rankIndex(b.rank);
   });
+};
+
+export const cardToCode = (card: Card): string => `${RANK_LABEL_MAP[card.rank]}${SUIT_CODE_MAP[card.suit]}`;
+
+export const getHalfSuitCards = (halfSuit?: HalfSuit): Card[] => {
+  if (!halfSuit) {
+    return [];
+  }
+  const deck: Card[] = [];
+  for (const suit of [Suit.HEARTS, Suit.DIAMONDS, Suit.CLUBS, Suit.SPADES]) {
+    for (const rank of RANK_ORDER) {
+      deck.push({
+        suit,
+        rank,
+        halfSuit: getHalfSuit(suit, rank),
+      });
+    }
+  }
+  return deck.filter((card) => card.halfSuit === halfSuit);
 };
