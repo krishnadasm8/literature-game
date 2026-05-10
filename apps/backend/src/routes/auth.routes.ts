@@ -14,8 +14,10 @@ router.post("/google", async (req, res) => {
     console.log("accessToken:", req.body.accessToken ? "present" : "missing");
 
     const idToken = req.body?.idToken as string | undefined;
-    if (!idToken) {
-      res.status(400).json({ error: "idToken is required." });
+    const accessToken = req.body?.accessToken as string | undefined;
+
+    if (!idToken && !accessToken) {
+      res.status(400).json({ error: "idToken or accessToken required" });
       return;
     }
 
@@ -32,47 +34,60 @@ router.post("/google", async (req, res) => {
       return;
     }
 
-    const ticket = await googleClient.verifyIdToken({
-      idToken,
-      audience: googleClientId,
-    });
-    const payload = ticket.getPayload();
+    let payload: any;
+
+    if (idToken) {
+      const ticket = await googleClient.verifyIdToken({
+        idToken,
+        audience: googleClientId,
+      });
+      payload = ticket.getPayload();
+    } else if (accessToken) {
+      const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!userInfoRes.ok) {
+        res.status(401).json({ error: "Invalid Google access token." });
+        return;
+      }
+      payload = await userInfoRes.json();
+    }
 
     if (!payload?.sub) {
-      res.status(401).json({ error: "Invalid Google token payload." });
+      res.status(401).json({ error: "Invalid token payload." });
       return;
     }
 
-    const googleId = payload.sub;
-    const email = payload.email;
+    const googleId = payload.sub as string;
+    const email = payload.email as string | undefined;
     const displayName = payload.name ?? email ?? "Literature Player";
-    const avatarUrl = payload.picture ?? null;
+    const avatarUrl = (payload.picture as string | undefined) ?? null;
 
     const user = await prisma.user.upsert({
       where: { googleId },
-      update: { 
-        displayName, 
-        avatarUrl 
+      update: {
+        displayName,
+        avatarUrl,
       },
-      create: { 
-        googleId, 
-        displayName, 
-        avatarUrl, 
-        coins: 0, 
-        gamesPlayed: 0, 
-        gamesWon: 0 
+      create: {
+        googleId,
+        displayName,
+        avatarUrl,
+        coins: 0,
+        gamesPlayed: 0,
+        gamesWon: 0,
       },
     });
 
-    const accessToken = jwt.sign({ userId: user.id }, jwtSecret, {
+    const jwtAccessToken = jwt.sign({ userId: user.id }, jwtSecret, {
       expiresIn: "15m",
     });
 
-    const refreshToken = jwt.sign({ userId: user.id }, jwtRefreshSecret, {
+    const jwtRefreshToken = jwt.sign({ userId: user.id }, jwtRefreshSecret, {
       expiresIn: "30d",
     });
 
-    res.json({ accessToken, refreshToken, user });
+    res.json({ accessToken: jwtAccessToken, refreshToken: jwtRefreshToken, user });
   } catch (error) {
     console.log("Auth error:", error instanceof Error ? error.message : String(error));
     const message = error instanceof Error ? error.message : "Google sign-in failed.";

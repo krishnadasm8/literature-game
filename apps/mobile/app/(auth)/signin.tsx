@@ -29,7 +29,9 @@ export default function SignInScreen(): JSX.Element {
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
-    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+    androidClientId:
+      process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID ??
+      process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
     iosClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
     webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
     scopes: ["openid", "profile", "email"],
@@ -44,20 +46,33 @@ export default function SignInScreen(): JSX.Element {
       }
 
       const idToken =
-        response.authentication?.idToken ?? response.params?.id_token;
+        response.authentication?.idToken ??
+        response.params?.id_token ??
+        null;
 
-      if (!idToken) {
-        setError("Google did not return an ID token.");
+      const accessToken =
+        response.authentication?.accessToken ??
+        (typeof response.params?.access_token === "string"
+          ? response.params.access_token
+          : null);
+
+      // Try idToken first, fall back to accessToken
+      const tokenToSend = idToken ?? accessToken;
+
+      if (!tokenToSend) {
+        setError("Google did not return a token.");
         return;
       }
 
       setLoading(true);
       setError(null);
       try {
-        await signInWithGoogle(idToken);
+        await signInWithGoogle(tokenToSend, !!idToken);
         router.replace("/(tabs)");
       } catch (authError) {
-        setError(authError instanceof Error ? authError.message : "Sign-in failed.");
+        setError(
+          authError instanceof Error ? authError.message : "Sign-in failed.",
+        );
       } finally {
         setLoading(false);
       }
