@@ -75,13 +75,26 @@ api.interceptors.response.use(
 
     const requestUrl = originalRequest?.url ?? "";
 
-    if (!originalRequest || status !== 401 || originalRequest._retry || requestUrl.includes(REFRESH_ENDPOINT)) {
+    // Never try refresh for auth endpoints or refresh endpoint itself.
+    if (
+      !originalRequest ||
+      status !== 401 ||
+      originalRequest._retry ||
+      requestUrl.includes(REFRESH_ENDPOINT) ||
+      requestUrl.includes("/auth/google")
+    ) {
       throw error;
     }
 
     originalRequest._retry = true;
 
     try {
+      // If we don't have a refresh token yet (e.g. during first sign-in), don't mask the real 401.
+      const existingRefreshToken = await getToken(REFRESH_TOKEN_KEY);
+      if (!existingRefreshToken) {
+        throw error;
+      }
+
       const nextToken = await refreshAccessToken();
       useAuthStore.setState((state) => ({
         ...state,

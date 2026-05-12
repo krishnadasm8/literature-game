@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
-import { Stack, useRouter, useSegments } from "expo-router";
+import { Stack, useRootNavigationState, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -9,6 +9,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { LoadingOverlay } from "../components/ui/LoadingOverlay";
 import { useAuth } from "../hooks/useAuth";
+import { useAuthStore } from "../store/authStore";
 
 interface AppErrorBoundaryProps {
   children: React.ReactNode;
@@ -101,6 +102,10 @@ export default function RootLayout(): JSX.Element {
   const segments = useSegments();
   const { isAuthenticated } = useAuth();
   const [fontsLoaded, fontError] = useFonts({});
+  const [authHydrated, setAuthHydrated] = useState(() =>
+    useAuthStore.persist.hasHydrated(),
+  );
+  const rootNavState = useRootNavigationState();
 
   const isInAuthGroup = useMemo(
     () => segments[0] === "(auth)",
@@ -108,15 +113,33 @@ export default function RootLayout(): JSX.Element {
   );
 
   useEffect(() => {
+    if (useAuthStore.persist.hasHydrated()) {
+      setAuthHydrated(true);
+      return;
+    }
+    const unsub = useAuthStore.persist.onFinishHydration(() => {
+      setAuthHydrated(true);
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
     if (fontsLoaded || fontError) {
       void SplashScreen.hideAsync();
     }
   }, [fontsLoaded, fontError]);
 
+  const fontsReady = fontsLoaded || fontError;
+
   useEffect(() => {
-    if (!fontsLoaded && !fontError) {
+    // Don't navigate until the root navigator is mounted.
+    if (!rootNavState?.key) {
       return;
     }
+    if (!fontsReady || !authHydrated) {
+      return;
+    }
+
     if (isAuthenticated && isInAuthGroup) {
       router.replace("/(tabs)");
       return;
@@ -124,17 +147,16 @@ export default function RootLayout(): JSX.Element {
     if (!isAuthenticated && !isInAuthGroup) {
       router.replace("/(auth)/signin");
     }
-  }, [fontsLoaded, fontError, isAuthenticated, isInAuthGroup, router]);
+  }, [rootNavState?.key, fontsReady, authHydrated, isAuthenticated, isInAuthGroup, router]);
 
-  if (!fontsLoaded && !fontError) {
-    return <LoadingOverlay visible message="Loading..." />;
-  }
+  const showBootOverlay = !fontsReady || !authHydrated;
 
   return (
     <AppErrorBoundary>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
           <StatusBar style="light" />
+          {showBootOverlay ? <LoadingOverlay visible message="Loading..." /> : null}
           <Stack
             screenOptions={{
               headerShown: false,

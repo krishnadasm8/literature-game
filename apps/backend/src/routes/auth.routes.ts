@@ -7,6 +7,25 @@ const router = Router();
 const prisma = new PrismaClient();
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
+/** JWT `aud` may be Web, Android, or iOS OAuth client id depending on how the user signed in. */
+function googleIdTokenAudiences(): string | string[] {
+  const ids = [
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_ANDROID_CLIENT_ID,
+    process.env.GOOGLE_IOS_CLIENT_ID,
+  ]
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter(Boolean);
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) {
+    return process.env.GOOGLE_CLIENT_ID ?? "";
+  }
+  if (unique.length === 1) {
+    return unique[0]!;
+  }
+  return unique;
+}
+
 router.post("/google", async (req, res) => {
   try {
     console.log("Auth request body:", req.body);
@@ -29,16 +48,27 @@ router.post("/google", async (req, res) => {
 
     const code = req.body?.code as string | undefined;
     const codeRedirectUri = req.body?.redirectUri as string | undefined;
+    const codeClientId = req.body?.clientId as string | undefined;
+    const codeVerifier = req.body?.codeVerifier as string | undefined;
 
     let payload: any = null;
 
-    // Android auth code exchange (server-side, Web client secret)
+    // Android auth code exchange (PKCE, no client secret)
     if (code && codeRedirectUri) {
       console.log("Exchanging auth code for tokens...");
       console.log("code:", `${code.substring(0, 20)}...`);
       console.log("redirectUri:", codeRedirectUri);
 
       try {
+        if (!codeClientId) {
+          res.status(400).json({ error: "clientId is required for code exchange." });
+          return;
+        }
+        if (!codeVerifier) {
+          res.status(400).json({ error: "codeVerifier is required for code exchange." });
+          return;
+        }
+
         const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
           method: "POST",
           headers: {
@@ -46,10 +76,10 @@ router.post("/google", async (req, res) => {
           },
           body: new URLSearchParams({
             code,
-            client_id: googleClientId,
-            client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+            client_id: codeClientId,
             redirect_uri: codeRedirectUri,
             grant_type: "authorization_code",
+            code_verifier: codeVerifier,
           }).toString(),
         });
 
@@ -77,7 +107,7 @@ router.post("/google", async (req, res) => {
         if (tokens.id_token) {
           const ticket = await googleClient.verifyIdToken({
             idToken: tokens.id_token,
-            audience: googleClientId,
+            audience: googleIdTokenAudiences(),
           });
           payload = ticket.getPayload();
         } else if (tokens.access_token) {
@@ -109,7 +139,7 @@ router.post("/google", async (req, res) => {
       if (idToken) {
         const ticket = await googleClient.verifyIdToken({
           idToken,
-          audience: googleClientId,
+          audience: googleIdTokenAudiences(),
         });
         payload = ticket.getPayload();
       } else if (accessToken) {

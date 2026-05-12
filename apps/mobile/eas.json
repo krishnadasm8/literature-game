@@ -12,6 +12,12 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://literature-game-production-09ae.up.railway.app/api/v1",
+        "EXPO_PUBLIC_SOCKET_URL": "https://literature-game-production-09ae.up.railway.app",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID": "98676129738-cti34d5p863mcdjrnomnvquhcet7fate.apps.googleusercontent.com",
+        "EXPO_PUBLIC_ANDROID_CLIENT_ID": "98676129738-qrppnmd6g2letll4gq9and7ca0gdi1cg.apps.googleusercontent.com"
       }
     },
     "production": {

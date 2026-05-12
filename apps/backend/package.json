@@ -3,9 +3,13 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
+    "predev": "prisma generate",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
+    "build": "prisma generate && tsc -p tsconfig.json",
+    "start": "prisma migrate deploy --schema prisma/schema.prisma && node dist/server.js",
+    "migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
+    "migrate:baseline-existing-db": "prisma migrate resolve --applied 20260509133530_init && prisma migrate resolve --applied 20260511_add_last_active_at",
+    "postinstall": "prisma generate",
     "typecheck": "tsc --noEmit",
     "test": "jest --runInBand"
   },

@@ -1,4 +1,38 @@
+import * as Application from "expo-application";
+import { Platform } from "react-native";
+
 import { api } from "./api";
+
+const GOOGLE_CLIENT_SUFFIX = ".apps.googleusercontent.com";
+
+/** Redirect URI for server-side auth-code exchange (only if something sends a `code` + PKCE). */
+function googleCodeExchangeRedirectUri(): string {
+  const appId = Application.applicationId?.trim() ?? "com.literaturecardgame";
+  if (Platform.OS === "ios") {
+    const iosClientId = (process.env.EXPO_PUBLIC_IOS_CLIENT_ID ?? "").trim();
+    if (iosClientId.endsWith(GOOGLE_CLIENT_SUFFIX)) {
+      const idPart = iosClientId.slice(0, -GOOGLE_CLIENT_SUFFIX.length);
+      return `com.googleusercontent.apps.${idPart}:/oauth2redirect`;
+    }
+  }
+  if (Platform.OS === "android") {
+    const androidClientId = (process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID ?? "").trim();
+    if (androidClientId.endsWith(GOOGLE_CLIENT_SUFFIX)) {
+      const idPart = androidClientId.slice(0, -GOOGLE_CLIENT_SUFFIX.length);
+      return `com.googleusercontent.apps.${idPart}:/oauth2redirect`;
+    }
+  }
+  return `${appId}:/oauth2redirect`;
+}
+
+function googleCodeExchangeClientId(): string {
+  const android = (process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID ?? "").trim();
+  const ios = (process.env.EXPO_PUBLIC_IOS_CLIENT_ID ?? "").trim();
+  if (Platform.OS === "ios" && ios) {
+    return ios;
+  }
+  return android;
+}
 
 export interface AuthTokens {
   accessToken: string;
@@ -31,6 +65,13 @@ interface BackendGoogleAuthResponse {
   };
 }
 
+function consumeGooglePkceVerifier(): string | undefined {
+  const g = globalThis as { __codeVerifier?: string };
+  const v = g.__codeVerifier;
+  delete g.__codeVerifier;
+  return v;
+}
+
 export const googleSignIn = async (
   token: string,
   isIdToken: boolean = true,
@@ -39,9 +80,15 @@ export const googleSignIn = async (
   let payload: Record<string, string>;
 
   if (isAuthCode) {
+    const codeVerifier = consumeGooglePkceVerifier();
+    const clientId = googleCodeExchangeClientId();
+    const redirectUri = googleCodeExchangeRedirectUri();
+
     payload = {
       code: token,
-      redirectUri: "com.literaturecardgame:/",
+      redirectUri,
+      clientId,
+      codeVerifier: codeVerifier ?? "",
     };
   } else if (isIdToken) {
     payload = { idToken: token };

@@ -2,6 +2,9 @@
   "name": "literature-monorepo",
   "private": true,
   "version": "1.0.0",
+  "overrides": {
+    "expo": "51.0.39"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -9,6 +12,13 @@
   "scripts": {
     "dev:mobile": "npm --workspace apps/mobile run start",
     "dev:backend": "npm --workspace apps/backend run dev",
-    "build:shared": "npm --workspace packages/shared run build"
+    "build:shared": "npm --workspace packages/shared run build",
+    "build:backend": "npm --workspace @literature/backend run build",
+    "start:backend": "npm --workspace @literature/backend run start",
+    "db:migrate": "npm --workspace @literature/backend run migrate:deploy",
+    "db:baseline": "npm --workspace @literature/backend run migrate:baseline-existing-db"
+  },
+  "devDependencies": {
+    "expo": "51.0.39"
   }
 }

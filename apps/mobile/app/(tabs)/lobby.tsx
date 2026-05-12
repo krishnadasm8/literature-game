@@ -18,7 +18,22 @@ import { StatusBar } from "expo-status-bar";
 import * as Clipboard from "expo-clipboard";
 
 import { api } from "../../services/api";
+import { isAxiosError } from "axios";
 import { useAuthStore } from "../../store/authStore";
+
+function formatApiError(error: unknown, fallback: string): string {
+  if (isAxiosError(error) && error.response?.data) {
+    const data = error.response.data as { error?: string; prismaCode?: string; hint?: string };
+    const parts = [data.error, data.hint, data.prismaCode].filter(Boolean);
+    if (parts.length > 0) {
+      return parts.join(" — ");
+    }
+    if (error.message) {
+      return error.message;
+    }
+  }
+  return error instanceof Error ? error.message : fallback;
+}
 
 interface RoomApiResponse {
   room: {
@@ -78,7 +93,7 @@ export default function LobbyScreen(): JSX.Element {
       setCreatedRoomCode(code);
       setShowCreateModal(true);
     } catch (error) {
-      showError(error instanceof Error ? error.message : "Could not create room.");
+      showError(formatApiError(error, "Could not create room."));
     } finally {
       setLoadingCreate(false);
     }
@@ -98,7 +113,7 @@ export default function LobbyScreen(): JSX.Element {
       });
       router.push(`/room/${code}`);
     } catch (error) {
-      showError(error instanceof Error ? error.message : "Could not join room.");
+      showError(formatApiError(error, "Could not join room."));
     } finally {
       setLoadingJoin(false);
     }

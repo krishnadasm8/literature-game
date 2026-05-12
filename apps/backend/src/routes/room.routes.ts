@@ -2,14 +2,14 @@ import { PrismaClient } from "@prisma/client";
 import { Router } from "express";
 
 import type { AuthenticatedRequest } from "../middleware/auth.middleware";
-
-type Team = "TEAM_A" | "TEAM_B";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { emitToRoomNamespace } from "../sockets";
 import { gameManager } from "../services/gameManager";
 
 const router = Router();
 const prisma = new PrismaClient();
+
+type Team = "TEAM_A" | "TEAM_B";
 
 type RoomWithPlayers = Awaited<ReturnType<typeof getRoomByCode>>;
 
@@ -34,7 +34,7 @@ const toPublicRoom = (room: NonNullable<RoomWithPlayers>) => {
       displayName: roomPlayer.user.displayName,
       avatarUrl: roomPlayer.user.avatarUrl,
       isReady: roomPlayer.isReady,
-      isBot: roomPlayer.user.googleId.startsWith("bot_"),
+      isBot: (roomPlayer.user.googleId ?? "").startsWith("bot_"),
       team: roomPlayer.team ?? TEAM_FOR_SEAT[index] ?? "TEAM_A",
       seatNumber: index,
       joinedAt: roomPlayer.joinedAt,
@@ -87,6 +87,14 @@ router.post("/", authMiddleware, async (req: AuthenticatedRequest, res) => {
       return;
     }
 
+    const hostUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!hostUser) {
+      res.status(401).json({
+        error: "User not found. Sign in again — your token may be from an old deployment or database.",
+      });
+      return;
+    }
+
     const maxPlayers = Number(req.body?.maxPlayers ?? 6);
     if (![4, 6, 8].includes(maxPlayers)) {
       res.status(400).json({ error: "maxPlayers must be 4, 6, or 8." });
@@ -116,7 +124,19 @@ router.post("/", authMiddleware, async (req: AuthenticatedRequest, res) => {
       roomCode: room.roomCode,
     });
   } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : "Failed to create room." });
+    const prismaMeta =
+      error && typeof error === "object" && "code" in error
+        ? { prismaCode: String((error as { code: unknown }).code) }
+        : {};
+    console.error("[POST /api/v1/rooms] create failed:", error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to create room.",
+      ...prismaMeta,
+      hint:
+        prismaMeta.prismaCode === "P2021" || prismaMeta.prismaCode === "P1001"
+          ? "Check DATABASE_URL and run prisma migrate deploy on the server."
+          : undefined,
+    });
   }
 });
 
@@ -346,7 +366,7 @@ router.post("/:code/start", authMiddleware, async (req: AuthenticatedRequest, re
       return;
     }
 
-    const nonBotPlayers = room.players.filter((player: any) => !player.user.googleId.startsWith("bot_"));
+    const nonBotPlayers = room.players.filter((player: any) => !(player.user.googleId ?? "").startsWith("bot_"));
     if (nonBotPlayers.some((player: any) => !player.isReady)) {
       res.status(400).json({ error: "All non-bot players must be ready." });
       return;
@@ -419,7 +439,7 @@ router.post("/:code/start", authMiddleware, async (req: AuthenticatedRequest, re
         avatarUrl: roomPlayer.user.avatarUrl ?? "",
         team: roomPlayer.team ?? TEAM_FOR_SEAT[index],
         handCount: (handsSnapshot[roomPlayer.user.id] ?? []).length,
-        isBot: roomPlayer.user.googleId.startsWith("bot_"),
+        isBot: (roomPlayer.user.googleId ?? "").startsWith("bot_"),
         isConnected: true,
       })),
       scores: {

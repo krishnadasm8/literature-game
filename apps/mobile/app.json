@@ -12,19 +12,12 @@
       "resizeMode": "contain",
       "backgroundColor": "#0f172a"
     },
-    "plugins": [
-      "expo-router",
-      "expo-font",
-      "expo-secure-store",
-      [
-        "expo-splash-screen",
-        {
-          "backgroundColor": "#0f172a",
-          "image": "./assets/splash.png",
-          "imageWidth": 200
-        }
-      ]
-    ],
+  "plugins": [
+    "expo-router",
+    "expo-font",
+    "expo-secure-store",
+    "expo-dev-client"
+  ],
     "extra": {
       "router": {
         "origin": false
@@ -33,9 +26,7 @@
         "projectId": "7519515a-5f31-49a8-bb52-b9459084f0d6"
       }
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/7519515a-5f31-49a8-bb52-b9459084f0d6"
     },
@@ -48,6 +39,22 @@
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "literature",
+              "host": "*"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
       ]
     },
     "ios": {
