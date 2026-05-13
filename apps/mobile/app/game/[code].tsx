@@ -33,6 +33,7 @@ import { useGameStore } from "../../store/gameStore";
 import { cardToCode, getHalfSuit, getHalfSuitCards } from "../../utils/cardHelpers";
 import { formatDisplayName } from "../../utils/nameHelpers";
 import { confirmLeaveGame } from "../../utils/leaveGameSession";
+import { playSfx } from "../../services/soundEffects";
 
 const RANKS_BY_TIER = {
   LOW: ["TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN"],
@@ -183,17 +184,6 @@ export default function GameCodeScreen(): JSX.Element {
   useGameState(code);
 
   useEffect(() => {
-    const off = socketService.on(
-      "game:error",
-      (data: { message: string }) => {
-        console.error("Game error:", data.message);
-        Alert.alert("Game Error", data.message);
-      }
-    );
-    return off;
-  }, []);
-
-  useEffect(() => {
     navigation.setOptions({ headerShown: false });
   }, [navigation]);
 
@@ -301,6 +291,7 @@ export default function GameCodeScreen(): JSX.Element {
   };
 
   const handleCloseGameEvent = (): void => {
+    playSfx("tap");
     if (gameEventTimerRef.current) {
       clearTimeout(gameEventTimerRef.current);
       gameEventTimerRef.current = null;
@@ -680,6 +671,7 @@ export default function GameCodeScreen(): JSX.Element {
     }
     setSubmitting(true);
     try {
+      playSfx("confirm");
       socketService.emit("game:play_card", {
         gameId: gameState.id,
         roomCode: code,
@@ -692,6 +684,7 @@ export default function GameCodeScreen(): JSX.Element {
       setSelectedAskCard(null);
       setAskPanelOpen(false);
     } catch {
+      playSfx("error");
       Alert.alert("Ask Error", "Failed to ask.");
     } finally {
       setSubmitting(false);
@@ -706,6 +699,7 @@ export default function GameCodeScreen(): JSX.Element {
     setSelectedAskCard(null);
     setSelectedHalfSuit(null);
     setSelectedSourceCardCode(null);
+    playSfx("tap");
     setAskPanelOpen(true);
   }, [isMyTurn, isSpectator, submitting, lastAskResult]);
 
@@ -721,6 +715,7 @@ export default function GameCodeScreen(): JSX.Element {
     });
     setSubmittingDeclare(true);
     try {
+      playSfx("confirm");
       socketService.emit("game:declare", {
         gameId: gameState.id,
         roomCode: code,
@@ -729,6 +724,7 @@ export default function GameCodeScreen(): JSX.Element {
       setDeclarePanelOpen(false);
       setSelectedDeclareHalfSuit(null);
     } catch (e) {
+      playSfx("error");
       console.log("Declare error:", e);
       Alert.alert("Declare Error", "Failed to declare.");
     } finally {
@@ -742,6 +738,7 @@ export default function GameCodeScreen(): JSX.Element {
     }
     setRespondingAsk(true);
     try {
+      playSfx("confirm");
       const responseChoice: "GIVE" | "NO" = incomingAsk.targetHasCard ? "GIVE" : "NO";
       const result = await respondToAsk(incomingAsk.gameId, responseChoice);
       if (result?.gameState) {
@@ -752,6 +749,7 @@ export default function GameCodeScreen(): JSX.Element {
       }
       setIncomingAsk(null);
     } catch (error) {
+      playSfx("error");
       Alert.alert("Response Error", error instanceof Error ? error.message : "Failed to respond.");
     } finally {
       setRespondingAsk(false);
@@ -876,6 +874,7 @@ export default function GameCodeScreen(): JSX.Element {
                 <Pressable
                   style={styles.declareSetButton}
                   onPress={() => {
+                    playSfx("tap");
                     setDeclarePanelOpen(true);
                   }}
                 >

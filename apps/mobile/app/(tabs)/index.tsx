@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
 
 import { useAuthStore } from "../../store/authStore";
+import { playSfx } from "../../services/soundEffects";
 import { formatDisplayName } from "../../utils/nameHelpers";
 
 const COLORS = {
@@ -73,19 +74,43 @@ export default function HomeScreen(): JSX.Element {
         </View>
 
         <View style={styles.actions}>
-          <Pressable style={styles.createButton} onPress={() => router.push("/(tabs)/lobby")}>
+          <Pressable
+            style={styles.createButton}
+            onPress={() => {
+              playSfx("tap");
+              router.push("/(tabs)/lobby");
+            }}
+          >
             <Text style={styles.createButtonText}>Create Room</Text>
           </Pressable>
-          <Pressable style={styles.joinButton} onPress={() => router.push({ pathname: "/(tabs)/lobby", params: { tab: "join" } })}>
+          <Pressable
+            style={styles.joinButton}
+            onPress={() => {
+              playSfx("tap");
+              router.push({ pathname: "/(tabs)/lobby", params: { tab: "join" } });
+            }}
+          >
             <Text style={styles.joinButtonText}>Join Room</Text>
           </Pressable>
         </View>
 
         <View style={styles.secondaryActions}>
-          <Pressable style={styles.rulesButton} onPress={() => router.push("/rules")}>
+          <Pressable
+            style={styles.rulesButton}
+            onPress={() => {
+              playSfx("tap");
+              router.push("/rules");
+            }}
+          >
             <Text style={styles.rulesButtonText}>GAME RULES</Text>
           </Pressable>
-          <Pressable style={styles.rulesButton} onPress={() => router.push("/demo-gameplay")}>
+          <Pressable
+            style={styles.rulesButton}
+            onPress={() => {
+              playSfx("tap");
+              router.push("/demo-gameplay");
+            }}
+          >
             <Text style={styles.rulesButtonText}>DEMO GAMEPLAY</Text>
           </Pressable>
         </View>

@@ -3,7 +3,7 @@ import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import { Stack, useRootNavigationState, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
@@ -11,6 +11,7 @@ import { LoadingOverlay } from "../components/ui/LoadingOverlay";
 import { useAuth } from "../hooks/useAuth";
 import { useAuthStore } from "../store/authStore";
 import { confirmLeaveGame } from "../utils/leaveGameSession";
+import { initSfx } from "../services/soundEffects";
 
 interface AppErrorBoundaryProps {
   children: React.ReactNode;
@@ -131,6 +132,13 @@ export default function RootLayout(): JSX.Element {
   }, [fontsLoaded, fontError]);
 
   const fontsReady = fontsLoaded || fontError;
+
+  useEffect(() => {
+    if (!fontsReady || Platform.OS === "web") {
+      return;
+    }
+    void initSfx();
+  }, [fontsReady]);
 
   useEffect(() => {
     // Don't navigate until the root navigator is mounted.

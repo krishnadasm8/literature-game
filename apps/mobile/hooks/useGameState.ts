@@ -1,12 +1,12 @@
 import { useEffect, useRef } from "react";
-import { AppState } from "react-native";
-import { Platform } from "react-native";
+import { Alert, AppState, Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 
 import type { Card, GameState } from "@shared/src";
 
 import { useGameStore } from "../store/gameStore";
 import { getGameState } from "../services/gameService";
+import { playSfx } from "../services/soundEffects";
 import { socketService } from "../services/socket";
 import { useAuthStore } from "../store/authStore";
 
@@ -22,6 +22,7 @@ export const useGameState = (roomCode?: string): void => {
   const askResultShownRef = useRef(false);
   const askResultKeyRef = useRef<string | null>(null);
   const lastAskResultAtRef = useRef(0);
+  const handDealtSfxRef = useRef(false);
 
   useEffect(() => {
     const loadInitialState = async () => {
@@ -39,6 +40,10 @@ export const useGameState = (roomCode?: string): void => {
       }
     };
     void loadInitialState();
+  }, [roomCode]);
+
+  useEffect(() => {
+    handDealtSfxRef.current = false;
   }, [roomCode]);
 
   useEffect(() => {
@@ -63,6 +68,7 @@ export const useGameState = (roomCode?: string): void => {
     const offTurnChanged = socketService.on<{ currentTurnPlayerName: string }>(
       "game:turn_changed",
       async (payload) => {
+        playSfx("turn");
         const canScheduleNativeNotification =
           Platform.OS !== "web" && typeof Notifications.scheduleNotificationAsync === "function";
 
@@ -83,6 +89,10 @@ export const useGameState = (roomCode?: string): void => {
     );
 
     const offHandUpdate = socketService.on<{ hand: Card[] }>("game:hand_update", (data) => {
+      if ((data.hand?.length ?? 0) > 0 && !handDealtSfxRef.current) {
+        handDealtSfxRef.current = true;
+        playSfx("deal");
+      }
       useGameStore.getState().setMyHand(data.hand);
     });
 
@@ -126,6 +136,7 @@ export const useGameState = (roomCode?: string): void => {
       askResultShownRef.current = true;
       askResultKeyRef.current = askKey;
       lastAskResultAtRef.current = now;
+      playSfx(data.success ? "askHit" : "askMiss");
       setLastAskResult({
         ...data,
         isForMe: data.askingPlayerId === userId || data.targetPlayerId === userId,
@@ -148,6 +159,7 @@ export const useGameState = (roomCode?: string): void => {
         console.log("declare_result blocked by modal lock");
         return;
       }
+      playSfx(data.correct ? "declareWin" : "declareLose");
       setLastDeclareResult(data);
     });
 
@@ -172,6 +184,15 @@ export const useGameState = (roomCode?: string): void => {
       gameStatus?: string;
       playerStats?: Record<string, { gamesPlayed: number; gamesWon: number; winRate: number; coins: number }>;
     }>("game:over", (data) => {
+      const gs = useGameStore.getState().gameState;
+      const me = userId ? gs?.players.find((p) => p.id === userId) : undefined;
+      if (data.winner === "DRAW") {
+        playSfx("confirm");
+      } else if (me && (data.winner === "TEAM_A" || data.winner === "TEAM_B") && data.winner === me.team) {
+        playSfx("victory");
+      } else {
+        playSfx("defeat");
+      }
       if (userId && data.playerStats?.[userId]) {
         updateUserStats(data.playerStats[userId]);
       }
@@ -180,6 +201,8 @@ export const useGameState = (roomCode?: string): void => {
 
     const offGameError = socketService.on<{ message: string }>("game:error", (data) => {
       console.error("SOCKET game:error received:", data.message);
+      playSfx("error");
+      Alert.alert("Game Error", data.message);
     });
 
     return () => {

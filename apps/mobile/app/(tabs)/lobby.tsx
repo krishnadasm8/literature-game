@@ -19,6 +19,7 @@ import { StatusBar } from "expo-status-bar";
 import * as Clipboard from "expo-clipboard";
 
 import { api } from "../../services/api";
+import { playSfx } from "../../services/soundEffects";
 import { isAxiosError } from "axios";
 import { useAuthStore } from "../../store/authStore";
 
@@ -115,6 +116,7 @@ export default function LobbyScreen(): JSX.Element {
 
   const showError = (message: string): void => {
     setErrorMessage(message);
+    playSfx("error");
     if (ToastAndroid) {
       ToastAndroid.show(message, ToastAndroid.SHORT);
       return;
@@ -136,6 +138,7 @@ export default function LobbyScreen(): JSX.Element {
       const code = response.data.roomCode ?? response.data.room.roomCode;
       setCreatedRoomCode(code);
       setShowCreateModal(true);
+      playSfx("confirm");
     } catch (error) {
       showError(formatApiError(error, "Could not create room."));
     } finally {
@@ -155,6 +158,7 @@ export default function LobbyScreen(): JSX.Element {
       await api.get<RoomApiResponse>(`/rooms/${code}`, {
         headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
       });
+      playSfx("confirm");
       router.push(`/room/${code}`);
     } catch (error) {
       showError(formatApiError(error, "Could not join room."));

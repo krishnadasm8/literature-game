@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -14,6 +15,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 
 import { useAuth } from "../../hooks/useAuth";
+import { useAudioSettingsStore } from "../../store/audioSettingsStore";
 import { formatDisplayName, isValidDisplayName } from "../../utils/nameHelpers";
 import { presetAvatarUrl } from "../../utils/avatarPresets";
 
@@ -27,6 +29,8 @@ const getInitials = (name: string): string =>
 
 export default function ProfileScreen(): JSX.Element {
   const { user, signOut, updateProfile } = useAuth();
+  const soundsMuted = useAudioSettingsStore((s) => s.soundsMuted);
+  const setSoundsMuted = useAudioSettingsStore((s) => s.setSoundsMuted);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(formatDisplayName(user?.displayName));
   const [nameError, setNameError] = useState<string | null>(null);
@@ -163,7 +167,21 @@ export default function ProfileScreen(): JSX.Element {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Profile picture</Text>
+          <View style={styles.settingRow}>
+            <View style={styles.settingTextCol}>
+              <Text style={styles.sectionTitle}>Sound effects</Text>
+              <Text style={styles.sectionHint}>Mute all game and lobby sounds.</Text>
+            </View>
+            <Switch
+              value={soundsMuted}
+              onValueChange={(v) => setSoundsMuted(v)}
+              trackColor={{ false: "#334155", true: "#475569" }}
+              thumbColor={soundsMuted ? "#94a3b8" : "#f59e0b"}
+            />
+          </View>
+        </View>
+
+        <View style={styles.section}>
           <Text style={styles.sectionHint}>Optional — cartoon avatar, or initials only in the lobby and game.</Text>
           <View style={styles.presetRows}>
             {[0, 4].map((rowStart) => (
@@ -300,6 +318,13 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   editButtonText: { color: "#111827", fontWeight: "800" },
+  settingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  settingTextCol: { flex: 1, gap: 4 },
   sectionHint: { color: "#64748b", fontSize: 12, marginTop: -4 },
   presetRows: {
     gap: PRESET_GAP,

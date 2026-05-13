@@ -3,6 +3,7 @@ import { FlatList, StyleSheet, View, useWindowDimensions } from "react-native";
 
 import type { Card } from "@shared/src";
 
+import { playSfx } from "../../services/soundEffects";
 import { CardView } from "./CardView";
 
 interface HandViewProps {
@@ -55,6 +56,7 @@ export function HandView({ hand, playableCards, onCardSelect }: HandViewProps): 
           selected={selected}
           playable={playable}
           onPress={() => {
+            playSfx("card");
             setSelectedCode((current) => (current === code ? null : code));
             onCardSelect(card);
           }}
@@ -80,6 +82,7 @@ export function HandView({ hand, playableCards, onCardSelect }: HandViewProps): 
               playable={playableSet.has(cardCode(item))}
               onPress={() => {
                 const code = cardCode(item);
+                playSfx("card");
                 setSelectedCode((current) => (current === code ? null : code));
                 onCardSelect(item);
               }}

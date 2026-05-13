@@ -23,6 +23,7 @@ import { useAuthStore } from "../../store/authStore";
 import { useGameStore } from "../../store/gameStore";
 import { type RoomMember, useRoomStore } from "../../store/roomStore";
 import { formatDisplayName } from "../../utils/nameHelpers";
+import { playSfx } from "../../services/soundEffects";
 
 const getInitials = (name: string): string =>
   name
@@ -117,6 +118,7 @@ export default function RoomCodeScreen(): JSX.Element {
         }
         setRoom(response.room, response.room.players);
         socketService.emit("room:join", { roomCode: normalizedCode }, "/room");
+        playSfx("confirm");
       } catch (error) {
         Alert.alert("Room Error", error instanceof Error ? error.message : "Failed to join room.");
       } finally {
@@ -173,7 +175,9 @@ export default function RoomCodeScreen(): JSX.Element {
     try {
       const response = await setReady(room.roomCode, !myPlayer.isReady);
       setRoom(response.room, response.room.players);
+      playSfx("tap");
     } catch (error) {
+      playSfx("error");
       Alert.alert("Ready Error", error instanceof Error ? error.message : "Could not update readiness.");
     } finally {
       setUpdating(false);
@@ -189,7 +193,9 @@ export default function RoomCodeScreen(): JSX.Element {
     try {
       const response = await switchTeam(room.roomCode, nextTeam);
       setRoom(response.room, response.room.players);
+      playSfx("tap");
     } catch (error) {
+      playSfx("error");
       Alert.alert("Team Error", error instanceof Error ? error.message : "Could not switch team.");
     } finally {
       setUpdating(false);
@@ -204,7 +210,9 @@ export default function RoomCodeScreen(): JSX.Element {
     try {
       const response = await startGame(room.roomCode);
       setRoom(response.room, response.room.players);
+      playSfx("confirm");
     } catch (error) {
+      playSfx("error");
       Alert.alert("Start Error", error instanceof Error ? error.message : "Could not start game.");
     } finally {
       setUpdating(false);
@@ -213,9 +221,11 @@ export default function RoomCodeScreen(): JSX.Element {
 
   const onCopyCode = async (): Promise<void> => {
     await Clipboard.setStringAsync(normalizedCode);
+    playSfx("tap");
   };
 
   const onShare = async (): Promise<void> => {
+    playSfx("tap");
     await Share.share({
       message: `Join my Literature game! Code: ${normalizedCode}`,
     });
@@ -223,6 +233,7 @@ export default function RoomCodeScreen(): JSX.Element {
 
   const onLeaveRoom = (): void => {
     const run = (): void => {
+      playSfx("tap");
       void (async () => {
         setUpdating(true);
         try {
