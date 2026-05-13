@@ -8,6 +8,7 @@ export interface RoomMember {
   isBot: boolean;
   team: "TEAM_A" | "TEAM_B";
   seatNumber: number;
+  coins?: number;
 }
 
 export interface RoomDetails {

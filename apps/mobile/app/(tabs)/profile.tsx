@@ -27,12 +27,13 @@ export default function ProfileScreen(): JSX.Element {
 
   const stats = useMemo(
     () => [
-      { label: "Games Played", value: "0" },
-      { label: "Games Won", value: "0" },
-      { label: "Win Rate", value: "0%" },
-      { label: "Score Declared", value: "0" },
+      { label: "Games Played", value: String(user?.gamesPlayed ?? 0) },
+      { label: "Games Won", value: String(user?.gamesWon ?? 0) },
+      { label: "Win Rate", value: `${user?.winRate ?? 0}%` },
+      // Coins UI hidden for now — restore when implementing:
+      // { label: "Coins", value: String(user?.coins ?? 0) },
     ],
-    [],
+    [user?.gamesPlayed, user?.gamesWon, user?.winRate /*, user?.coins */],
   );
 
   const onSignOut = (): void => {
@@ -115,13 +116,15 @@ export default function ProfileScreen(): JSX.Element {
           </View>
         </View>
 
+        {/* Coins UI hidden for now — restore when implementing:
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Coins</Text>
-          <Text style={styles.coins}>🪙 0</Text>
+          <Text style={styles.coins}>🪙 {user?.coins ?? 0}</Text>
           <Pressable style={styles.primaryButton}>
             <Text style={styles.primaryButtonText}>Get More Coins</Text>
           </Pressable>
         </View>
+        */}
 
         <View style={styles.section}>
           <Text style={styles.dangerTitle}>Danger Zone</Text>

@@ -3,11 +3,21 @@ import { Router } from "express";
 
 import type { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { authMiddleware } from "../middleware/auth.middleware";
-import { emitToRoomNamespace } from "../sockets";
+import { COIN_ROOM_CREATE, COIN_ROOM_JOIN } from "../config/coinEconomy";
+import { applyLeaveGameCoins, applyPassiveCoinRegen, grantCoinBonus } from "../services/coinService";
+import { emitToGameNamespace, emitToRoomNamespace } from "../sockets";
 import { gameManager } from "../services/gameManager";
 
 const router = Router();
 const prisma = new PrismaClient();
+
+async function withYourCoins<T extends Record<string, unknown>>(
+  userId: string,
+  payload: T,
+): Promise<T & { yourCoins: number }> {
+  const row = await prisma.user.findUnique({ where: { id: userId }, select: { coins: true } });
+  return { ...payload, yourCoins: row?.coins ?? 0 };
+}
 
 type Team = "TEAM_A" | "TEAM_B";
 
@@ -38,6 +48,7 @@ const toPublicRoom = (room: NonNullable<RoomWithPlayers>) => {
       team: roomPlayer.team ?? TEAM_FOR_SEAT[index] ?? "TEAM_A",
       seatNumber: index,
       joinedAt: roomPlayer.joinedAt,
+      coins: roomPlayer.user.coins ?? 0,
     }));
 
   return {
@@ -118,6 +129,9 @@ router.post("/", authMiddleware, async (req: AuthenticatedRequest, res) => {
       },
     });
 
+    await applyPassiveCoinRegen(userId);
+    await grantCoinBonus(userId, COIN_ROOM_CREATE, `Created room ${room.roomCode}`, room.roomCode);
+
     const fullRoom = await getRoomByCode(room.roomCode);
     res.status(201).json({
       room: fullRoom ? toPublicRoom(fullRoom) : room,
@@ -175,8 +189,11 @@ router.post("/:code/join", authMiddleware, async (req: AuthenticatedRequest, res
       return;
     }
 
+    await applyPassiveCoinRegen(userId);
+
     const existing = room.players.find((player: any) => player.userId === userId);
     if (!existing) {
+      await grantCoinBonus(userId, COIN_ROOM_JOIN, `Joined room ${roomCode}`, roomCode);
       const seatIndex = room.players.length;
       await prisma.roomPlayer.create({
         data: {
@@ -222,24 +239,42 @@ router.post("/:code/leave", authMiddleware, async (req: AuthenticatedRequest, re
 
     const roomPlayer = room.players.find((player: any) => player.userId === userId);
     if (!roomPlayer) {
-      res.status(200).json({ room: toPublicRoom(room) });
+      res.status(200).json(await withYourCoins(userId, { room: toPublicRoom(room) }));
       return;
     }
 
     const wasHost = room.hostId === userId;
 
+    const activeGame = room.game;
+    if (activeGame?.status === "PLAYING") {
+      const leaverGoogleId = roomPlayer.user?.googleId ?? "";
+      if (!leaverGoogleId.startsWith("bot_")) {
+        const remainingHumans = room.players
+          .filter((p: any) => p.userId !== userId && !(p.user?.googleId ?? "").startsWith("bot_"))
+          .map((p: any) => p.userId as string);
+        try {
+          const coinsByPlayerId = await applyLeaveGameCoins(roomCode, userId, remainingHumans);
+          if (Object.keys(coinsByPlayerId).length > 0) {
+            emitToGameNamespace(roomCode, "game:coins_update", { coinsByPlayerId });
+          }
+        } catch (coinErr) {
+          console.error("[room leave] coin transfer failed:", coinErr);
+        }
+      }
+    }
+
     await prisma.roomPlayer.delete({ where: { id: roomPlayer.id } });
     const updatedRoom = await getRoomByCode(roomCode);
     if (!updatedRoom) {
       emitToRoomNamespace(roomCode, "room:player_left", { roomCode, playerId: userId });
-      res.status(200).json({ room: null });
+      res.status(200).json(await withYourCoins(userId, { room: null }));
       return;
     }
 
     if (updatedRoom.players.length === 0) {
       await prisma.room.delete({ where: { id: updatedRoom.id } });
       emitToRoomNamespace(roomCode, "room:player_left", { roomCode, playerId: userId });
-      res.status(200).json({ room: null });
+      res.status(200).json(await withYourCoins(userId, { room: null }));
       return;
     }
 
@@ -263,7 +298,7 @@ router.post("/:code/leave", authMiddleware, async (req: AuthenticatedRequest, re
     }
 
     emitToRoomNamespace(roomCode, "room:player_left", { roomCode, playerId: userId });
-    res.status(200).json({ room: toPublicRoom(finalRoom) });
+    res.status(200).json(await withYourCoins(userId, { room: toPublicRoom(finalRoom) }));
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : "Failed to leave room." });
   }
@@ -472,6 +507,7 @@ router.post("/:code/start", authMiddleware, async (req: AuthenticatedRequest, re
         handCount: (handsSnapshot[roomPlayer.user.id] ?? []).length,
         isBot: (roomPlayer.user.googleId ?? "").startsWith("bot_"),
         isConnected: true,
+        coins: roomPlayer.user.coins ?? 0,
       })),
       scores: {
         TEAM_A: 0,

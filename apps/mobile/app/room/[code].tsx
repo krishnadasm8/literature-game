@@ -378,6 +378,9 @@ function PlayerSlotCard({
       <Text style={styles.playerName} numberOfLines={1}>
         {formatDisplayName(player.displayName)}
       </Text>
+      {/* Coins UI hidden for now — restore when implementing:
+      {!player.isBot ? <Text style={styles.coinLine}>🪙 {player.coins ?? 0}</Text> : null}
+      */}
       <Text style={player.isReady ? styles.readyText : styles.notReadyText}>
         {player.isReady ? "✓" : "○"} {player.isReady ? "Ready" : "Not ready"}
       </Text>
@@ -520,6 +523,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
   },
+  coinLine: { color: "#fbbf24", fontSize: 11, fontWeight: "800" },
   readyText: {
     color: "#22c55e",
     fontSize: 12,

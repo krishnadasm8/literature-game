@@ -13,6 +13,7 @@ export default function StoreScreen(): JSX.Element {
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Coins / balance UI hidden for now — restore when implementing:
         <View style={styles.balanceCard}>
           <Text style={styles.balanceLabel}>Balance</Text>
           <Text style={styles.balanceValue}>🪙 0</Text>
@@ -32,6 +33,7 @@ export default function StoreScreen(): JSX.Element {
             </View>
           ))}
         </View>
+        */}
 
         <Text style={styles.sectionTitle}>Cosmetics</Text>
         <View style={styles.surface}>
@@ -40,7 +42,7 @@ export default function StoreScreen(): JSX.Element {
               <View style={styles.preview} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.cosmeticName}>{item}</Text>
-                <Text style={styles.cosmeticPrice}>{(index + 1) * 200} coins</Text>
+                {/* <Text style={styles.cosmeticPrice}>{(index + 1) * 200} coins</Text> */}
               </View>
               {index === 0 ? <Text style={styles.ownedBadge}>Owned</Text> : <Pressable style={styles.buyMini}><Text style={styles.buyMiniText}>Buy</Text></Pressable>}
             </View>

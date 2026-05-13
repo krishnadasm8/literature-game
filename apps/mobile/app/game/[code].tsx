@@ -833,6 +833,9 @@ export default function GameCodeScreen(): JSX.Element {
                 <Text style={styles.playerName} numberOfLines={1}>
                   {formatDisplayName(player.displayName)}
                 </Text>
+                {/* Coins UI hidden for now — restore when implementing:
+                <Text style={styles.playerCoins}>🪙 {player.coins ?? 0}</Text>
+                */}
                 <Text style={styles.playerCount}>{player.handCount} cards</Text>
                 {isYou ? <Text style={styles.youLabel}>You</Text> : null}
               </Pressable>
@@ -1666,6 +1669,7 @@ const styles = StyleSheet.create({
   avatarCircle: { width: 40, height: 40, borderRadius: 999, backgroundColor: "#0f172a", alignItems: "center", justifyContent: "center" },
   avatarText: { color: "#f1f5f9", fontWeight: "900", fontSize: 13 },
   playerName: { color: "#f1f5f9", fontWeight: "700", fontSize: 11, textAlign: "center" },
+  playerCoins: { color: "#fbbf24", fontWeight: "800", fontSize: 10 },
   playerCount: { color: "#cbd5e1", fontSize: 10 },
   youLabel: {
     color: "#111827",

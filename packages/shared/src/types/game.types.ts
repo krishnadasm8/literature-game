@@ -25,6 +25,7 @@ export interface Player {
   handCount: number;
   isBot: boolean;
   isConnected: boolean;
+  coins?: number;
 }
 
 export interface Move {

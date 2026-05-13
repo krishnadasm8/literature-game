@@ -31,6 +31,7 @@ interface GameOverData {
   teamBBooks: number;
   scores: Record<string, number>;
   gameStatus?: string;
+  playerStats?: Record<string, { gamesPlayed: number; gamesWon: number; winRate: number; coins: number }>;
 }
 
 interface GameStoreState {
@@ -46,6 +47,7 @@ interface GameStoreState {
   setLastDeclareResult: (result: DeclareResult | null) => void;
   setGameOver: (data: GameOverData | null) => void;
   setModalLocked: (locked: boolean) => void;
+  mergePlayerCoins: (coinsByPlayerId: Record<string, number>) => void;
   clearGame: () => void;
 }
 
@@ -83,6 +85,22 @@ export const useGameStore = create<GameStoreState>((set) => ({
   },
   setModalLocked: (modalLocked) => {
     set({ modalLocked });
+  },
+  mergePlayerCoins: (coinsByPlayerId) => {
+    set((state) => {
+      if (!state.gameState) {
+        return {};
+      }
+      return {
+        gameState: {
+          ...state.gameState,
+          players: state.gameState.players.map((p) => ({
+            ...p,
+            coins: coinsByPlayerId[p.id] ?? p.coins,
+          })),
+        },
+      };
+    });
   },
   clearGame: () => {
     set({

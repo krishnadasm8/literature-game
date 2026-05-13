@@ -17,6 +17,7 @@ model User {
   gamesPlayed   Int           @default(0)
   gamesWon      Int           @default(0)
   coins         Int           @default(0)
+  lastCoinRegenAt DateTime   @default(now())
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   hostedRooms   Room[]        @relation("RoomHost")

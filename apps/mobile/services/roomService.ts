@@ -10,6 +10,7 @@ interface RoomResponse {
 
 export type LeaveRoomResponse = {
   room: (RoomDetails & { players: RoomMember[] }) | null;
+  yourCoins?: number;
 };
 
 export const createRoom = async (maxPlayers: 4 | 6 | 8): Promise<RoomResponse> => {

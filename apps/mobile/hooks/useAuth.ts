@@ -41,6 +41,7 @@ export const useAuth = (): UseAuthResult => {
           gamesPlayed: result.gamesPlayed ?? 0,
           gamesWon: result.gamesWon ?? 0,
           winRate: result.winRate ?? 0,
+          coins: result.coins ?? 0,
         },
         result.tokens.accessToken,
       );

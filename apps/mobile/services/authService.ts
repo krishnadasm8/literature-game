@@ -47,6 +47,7 @@ export interface GoogleSignInResult {
   gamesWon: number;
   winRate: number;
   tokens: AuthTokens;
+  coins: number;
 }
 
 interface BackendGoogleAuthResponse {
@@ -62,6 +63,7 @@ interface BackendGoogleAuthResponse {
     gamesPlayed?: number | null;
     gamesWon?: number | null;
     winRate?: number | null;
+    coins?: number | null;
   };
 }
 
@@ -124,6 +126,7 @@ export const googleSignIn = async (
     gamesPlayed: data.user?.gamesPlayed ?? 0,
     gamesWon: data.user?.gamesWon ?? 0,
     winRate: data.user?.winRate ?? 0,
+    coins: typeof data.user?.coins === "number" ? data.user.coins : 0,
     tokens: {
       accessToken,
       refreshToken,

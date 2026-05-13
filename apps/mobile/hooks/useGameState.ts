@@ -16,6 +16,7 @@ export const useGameState = (roomCode?: string): void => {
   const setLastAskResult = useGameStore((state) => state.setLastAskResult);
   const setLastDeclareResult = useGameStore((state) => state.setLastDeclareResult);
   const setGameOver = useGameStore((state) => state.setGameOver);
+  const mergePlayerCoins = useGameStore((state) => state.mergePlayerCoins);
   const updateUserStats = useAuthStore((state) => state.updateUserStats);
   const userId = useAuthStore((state) => state.user?.id);
   const askResultShownRef = useRef(false);
@@ -150,13 +151,26 @@ export const useGameState = (roomCode?: string): void => {
       setLastDeclareResult(data);
     });
 
+    const offCoinsUpdate = socketService.on<{ coinsByPlayerId: Record<string, number> }>(
+      "game:coins_update",
+      (data) => {
+        if (!data?.coinsByPlayerId) {
+          return;
+        }
+        mergePlayerCoins(data.coinsByPlayerId);
+        if (userId && typeof data.coinsByPlayerId[userId] === "number") {
+          updateUserStats({ coins: data.coinsByPlayerId[userId] });
+        }
+      },
+    );
+
     const offGameOver = socketService.on<{
       winner: string;
       teamABooks: number;
       teamBBooks: number;
       scores: Record<string, number>;
       gameStatus?: string;
-      playerStats?: Record<string, { gamesPlayed: number; gamesWon: number; winRate: number }>;
+      playerStats?: Record<string, { gamesPlayed: number; gamesWon: number; winRate: number; coins: number }>;
     }>("game:over", (data) => {
       if (userId && data.playerStats?.[userId]) {
         updateUserStats(data.playerStats[userId]);
@@ -177,9 +191,10 @@ export const useGameState = (roomCode?: string): void => {
       offHandUpdate();
       offAskResolved();
       offDeclareResult();
+      offCoinsUpdate();
       offGameOver();
       offGameError();
       socket.disconnect();
     };
-  }, [roomCode, setGameState, setMyHand, setGameOver, setLastAskResult, setLastDeclareResult, updateUserStats, userId]);
+  }, [roomCode, setGameState, setMyHand, setGameOver, setLastAskResult, setLastDeclareResult, updateUserStats, userId, mergePlayerCoins]);
 };

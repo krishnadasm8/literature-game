@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { cardToCode, createDeck, dealCards, getHalfSuitCards, shuffleDeck, type Card, type HalfSuit } from "../engine/deck";
 import { applyAsk, applyDeclare, isValidAsk, isValidDeclare, type GameState as RulesGameState } from "../engine/rules";
 import { emitToGameNamespace, emitToRoomNamespace } from "../sockets";
+import { applyGameEndCoins } from "./coinService";
 
 const prisma = new PrismaClient();
 
@@ -34,6 +35,7 @@ interface PlayerStatSummary {
   gamesPlayed: number;
   gamesWon: number;
   winRate: number;
+  coins: number;
 }
 
 const getOpponentTeam = (team: TeamId): TeamId => (team === "TEAM_A" ? "TEAM_B" : "TEAM_A");
@@ -208,6 +210,7 @@ export const gameManager = {
           handCount: (handsSnapshot[roomPlayer.user.id] ?? []).length,
           isBot: roomPlayer.user.googleId.startsWith("bot_"),
           isConnected: true,
+          coins: roomPlayer.user.coins ?? 0,
         })),
         scores: {
           TEAM_A: scores.TEAM_A ?? 0,
@@ -415,7 +418,11 @@ export const gameManager = {
     const room = await prisma.room.findUnique({
       where: { roomCode: roomCode.toUpperCase() },
       include: {
-        players: true,
+        players: {
+          include: {
+            user: true,
+          },
+        },
       },
     });
     if (room) {
@@ -451,6 +458,12 @@ export const gameManager = {
             });
           }
         }
+
+        await applyGameEndCoins(
+          roomCode.toUpperCase(),
+          participants as Array<{ userId: string; team: "TEAM_A" | "TEAM_B" }>,
+          winner as "TEAM_A" | "TEAM_B" | "DRAW",
+        );
       }
     }
     const updatedUsers = room
@@ -462,6 +475,7 @@ export const gameManager = {
             id: true,
             gamesPlayed: true,
             gamesWon: true,
+            coins: true,
           },
         })
       : [];
@@ -472,6 +486,7 @@ export const gameManager = {
           gamesPlayed: user.gamesPlayed,
           gamesWon: user.gamesWon,
           winRate: user.gamesPlayed > 0 ? Math.round((user.gamesWon / user.gamesPlayed) * 100) : 0,
+          coins: user.coins ?? 0,
         },
       ]),
     );

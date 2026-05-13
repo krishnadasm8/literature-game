@@ -3,6 +3,9 @@ import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
 
+import { COIN_STARTING } from "../config/coinEconomy";
+import { applyPassiveCoinRegen } from "../services/coinService";
+
 const router = Router();
 const prisma = new PrismaClient();
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -174,11 +177,14 @@ router.post("/google", async (req, res) => {
         googleId,
         displayName,
         avatarUrl,
-        coins: 0,
+        coins: COIN_STARTING,
         gamesPlayed: 0,
         gamesWon: 0,
       },
     });
+
+    await applyPassiveCoinRegen(user.id);
+    const refreshedUser = await prisma.user.findUnique({ where: { id: user.id } });
 
     const jwtAccessToken = jwt.sign({ userId: user.id }, jwtSecret, {
       expiresIn: "15m",
@@ -188,7 +194,7 @@ router.post("/google", async (req, res) => {
       expiresIn: "30d",
     });
 
-    res.json({ accessToken: jwtAccessToken, refreshToken: jwtRefreshToken, user });
+    res.json({ accessToken: jwtAccessToken, refreshToken: jwtRefreshToken, user: refreshedUser ?? user });
   } catch (error) {
     console.log("Auth error:", error instanceof Error ? error.message : String(error));
     const message = error instanceof Error ? error.message : "Google sign-in failed.";

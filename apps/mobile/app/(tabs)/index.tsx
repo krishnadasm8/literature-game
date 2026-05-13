@@ -51,6 +51,9 @@ export default function HomeScreen(): JSX.Element {
             <Text style={styles.greeting} numberOfLines={1}>
               Hello, {displayName}!
             </Text>
+            {/* Coins UI hidden for now — restore when implementing:
+            <Text style={styles.coinHint}>🪙 {user?.coins ?? 0}</Text>
+            */}
           </View>
         </View>
 
@@ -122,6 +125,7 @@ const styles = StyleSheet.create({
   },
   avatarText: { color: COLORS.text, fontWeight: "800" },
   greeting: { color: COLORS.text, fontSize: 12, textAlign: "center" },
+  coinHint: { color: "#fbbf24", fontSize: 11, fontWeight: "800" },
   statsRow: { flexDirection: "row", gap: 8 },
   statCard: {
     flex: 1,

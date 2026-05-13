@@ -3,6 +3,7 @@ import { Alert, Platform } from "react-native";
 
 import { leaveRoom } from "../services/roomService";
 import { socketService } from "../services/socket";
+import { useAuthStore } from "../store/authStore";
 import { useGameStore } from "../store/gameStore";
 
 const LEAVE_MESSAGE = "Are you sure you want to leave? Your team may forfeit.";
@@ -15,7 +16,10 @@ async function runLeaveGameSession(roomCode: string): Promise<void> {
   }
 
   try {
-    await leaveRoom(code);
+    const data = await leaveRoom(code);
+    if (typeof data.yourCoins === "number") {
+      useAuthStore.getState().updateUserStats({ coins: data.yourCoins });
+    }
   } catch {
     // Still leave the screen; user may already be removed or offline.
   }

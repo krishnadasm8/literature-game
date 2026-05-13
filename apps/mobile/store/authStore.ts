@@ -9,6 +9,8 @@ export interface AuthUser {
   gamesPlayed: number;
   gamesWon: number;
   winRate: number;
+  /** Omitted in older persisted sessions until next sign-in. */
+  coins?: number;
 }
 
 interface AuthStoreState {
@@ -16,11 +18,7 @@ interface AuthStoreState {
   accessToken: string | null;
   isAuthenticated: boolean;
   setUser: (user: AuthUser, accessToken: string) => void;
-  updateUserStats: (stats: {
-    gamesPlayed: number;
-    gamesWon: number;
-    winRate: number;
-  }) => void;
+  updateUserStats: (stats: Partial<Pick<AuthUser, "gamesPlayed" | "gamesWon" | "winRate" | "coins">>) => void;
   clearAuth: () => void;
 }
 
