@@ -2,3 +2,6 @@
 apps/**/.env
 node_modules/
 .expo/
+
+# Built Android artifacts (GitHub rejects files > 100MB; never commit APKs)
+*.apk
