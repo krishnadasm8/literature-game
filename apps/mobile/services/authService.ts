@@ -136,5 +136,9 @@ export const refreshToken = async (_refreshToken: string): Promise<AuthTokens> =
 };
 
 export const logout = async (): Promise<void> => {
-  throw new Error("logout is not implemented");
+  try {
+    await api.post("/auth/logout", {});
+  } catch {
+    // Best-effort; client still clears local session in useAuth.
+  }
 };

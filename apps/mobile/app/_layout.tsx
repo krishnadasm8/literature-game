@@ -3,13 +3,14 @@ import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import { Stack, useRootNavigationState, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { LoadingOverlay } from "../components/ui/LoadingOverlay";
 import { useAuth } from "../hooks/useAuth";
 import { useAuthStore } from "../store/authStore";
+import { confirmLeaveGame } from "../utils/leaveGameSession";
 
 interface AppErrorBoundaryProps {
   children: React.ReactNode;
@@ -203,18 +204,13 @@ export default function RootLayout(): JSX.Element {
                   headerRight: () => (
                     <Pressable
                       onPress={() => {
-                        Alert.alert(
-                          "Leave Game?",
-                          "Are you sure? Your team may forfeit.",
-                          [
-                            { text: "Stay", style: "cancel" },
-                            {
-                              text: "Leave",
-                              style: "destructive",
-                              onPress: () => navigation.goBack(),
-                            },
-                          ]
-                        );
+                        const roomCode =
+                          (route.params as { code?: string } | undefined)?.code ?? "";
+                        if (!roomCode) {
+                          navigation.goBack();
+                          return;
+                        }
+                        confirmLeaveGame(roomCode);
                       }}
                     >
                       <Text style={styles.leaveGameText}>Leave Game</Text>

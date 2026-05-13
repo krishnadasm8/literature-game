@@ -32,6 +32,7 @@ import { useAuthStore } from "../../store/authStore";
 import { useGameStore } from "../../store/gameStore";
 import { cardToCode, getHalfSuit, getHalfSuitCards } from "../../utils/cardHelpers";
 import { formatDisplayName } from "../../utils/nameHelpers";
+import { confirmLeaveGame } from "../../utils/leaveGameSession";
 
 const RANKS_BY_TIER = {
   LOW: ["TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN"],
@@ -786,10 +787,7 @@ export default function GameCodeScreen(): JSX.Element {
         <Pressable
           style={styles.headerSideButton}
           onPress={() => {
-            Alert.alert("Leave Game?", "Are you sure you want to leave? Your team may forfeit.", [
-              { text: "Stay", style: "cancel" },
-              { text: "Leave", style: "destructive", onPress: () => router.back() },
-            ]);
+            confirmLeaveGame(code ?? "");
           }}
         >
           <Text style={styles.leaveText}>Leave Game</Text>

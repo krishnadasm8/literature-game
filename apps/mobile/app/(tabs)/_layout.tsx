@@ -1,6 +1,6 @@
 import React from "react";
 import { Tabs } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Haptics from "expo-haptics";
 
 const TAB_META: Record<string, { icon: string; title: string }> = {
@@ -38,7 +38,9 @@ export default function TabsLayout(): JSX.Element {
             <Pressable
               {...props}
               onPress={(event) => {
-                void Haptics.selectionAsync();
+                if (Platform.OS !== "web") {
+                  void Haptics.selectionAsync();
+                }
                 props.onPress?.(event);
               }}
             />
