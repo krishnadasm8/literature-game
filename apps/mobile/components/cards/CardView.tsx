@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useEffect } from "react";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -22,11 +22,12 @@ interface CardViewProps {
   selectedLift?: number;
 }
 
+/** Unicode suit glyphs (avoid odd font fallbacks on some Android builds). */
 const SUIT_SYMBOLS: Record<Card["suit"], string> = {
-  [Suit.SPADES]: "♠",
-  [Suit.HEARTS]: "♥",
-  [Suit.DIAMONDS]: "♦",
-  [Suit.CLUBS]: "♣",
+  [Suit.SPADES]: "\u2660",
+  [Suit.HEARTS]: "\u2665",
+  [Suit.DIAMONDS]: "\u2666",
+  [Suit.CLUBS]: "\u2663",
 };
 
 const RANK_LABELS: Record<Card["rank"], string> = {
@@ -44,6 +45,15 @@ const RANK_LABELS: Record<Card["rank"], string> = {
   [Rank.ACE]: "A",
 };
 
+const androidTextProps = Platform.OS === "android" ? ({ textBreakStrategy: "simple" as const } as const) : {};
+
+const baseTextProps = {
+  includeFontPadding: false,
+  allowFontScaling: false,
+  maxFontSizeMultiplier: 1,
+  ...androidTextProps,
+} as const;
+
 export function CardView({
   card,
   faceUp,
@@ -54,10 +64,7 @@ export function CardView({
   height = 76,
   selectedLift = 12,
 }: CardViewProps): JSX.Element {
-  const isRedSuit = useMemo(
-    () => card.suit === Suit.HEARTS || card.suit === Suit.DIAMONDS,
-    [card.suit],
-  );
+  const isRedSuit = card.suit === Suit.HEARTS || card.suit === Suit.DIAMONDS;
   const scale = useSharedValue(1);
   const lift = useSharedValue(selected ? -selectedLift : 0);
 
@@ -73,7 +80,14 @@ export function CardView({
   }));
 
   const symbol = SUIT_SYMBOLS[card.suit];
-  const rank = RANK_LABELS[card.rank];
+  const rankStr = RANK_LABELS[card.rank];
+  const cornerColor = isRedSuit ? "#dc2626" : "#111827";
+
+  const edge = Math.max(3, Math.round(width * 0.08));
+  const cornerRankSize =
+    rankStr.length >= 2 ? Math.max(7, Math.round(width * 0.14)) : Math.max(8, Math.round(width * 0.17));
+  const cornerSuitSize = Math.max(9, Math.round(width * 0.19));
+  const centerSuitSize = Math.max(15, Math.round(width * 0.36));
 
   return (
     <Pressable
@@ -90,25 +104,96 @@ export function CardView({
         {faceUp ? (
           <View
             style={[
-              styles.card,
+              styles.cardFace,
               { width, height },
               playable && styles.playableCard,
               !playable && styles.nonPlayableCard,
               selected && styles.selectedCard,
             ]}
           >
-            <View>
-              <Text style={[styles.cornerText, isRedSuit ? styles.red : styles.black]}>{rank}</Text>
-              <Text style={[styles.cornerText, isRedSuit ? styles.red : styles.black]}>{symbol}</Text>
+            <View style={[styles.cornerTL, { padding: edge }]} collapsable={false}>
+              <Text
+                {...baseTextProps}
+                numberOfLines={1}
+                style={[
+                  styles.rankText,
+                  {
+                    fontSize: cornerRankSize,
+                    lineHeight: Math.round(cornerRankSize * 1.12),
+                    color: cornerColor,
+                  },
+                ]}
+              >
+                {rankStr}
+              </Text>
+              <Text
+                {...baseTextProps}
+                numberOfLines={1}
+                style={[
+                  styles.suitTextSmall,
+                  {
+                    fontSize: cornerSuitSize,
+                    lineHeight: Math.round(cornerSuitSize * 1.05),
+                    color: cornerColor,
+                  },
+                ]}
+              >
+                {symbol}
+              </Text>
             </View>
-            <Text style={[styles.centerSymbol, isRedSuit ? styles.red : styles.black]}>{symbol}</Text>
-            <View style={styles.bottomCorner}>
-              <Text style={[styles.cornerText, isRedSuit ? styles.red : styles.black]}>{rank}</Text>
-              <Text style={[styles.cornerText, isRedSuit ? styles.red : styles.black]}>{symbol}</Text>
+
+            <View style={styles.centerWrap} pointerEvents="none" collapsable={false}>
+              <Text
+                {...baseTextProps}
+                numberOfLines={1}
+                style={[
+                  styles.suitTextCenter,
+                  {
+                    fontSize: centerSuitSize,
+                    lineHeight: Math.round(centerSuitSize * 1.05),
+                    color: cornerColor,
+                  },
+                ]}
+              >
+                {symbol}
+              </Text>
+            </View>
+
+            <View style={[styles.cornerBR, { padding: edge }]} collapsable={false}>
+              <Text
+                {...baseTextProps}
+                numberOfLines={1}
+                style={[
+                  styles.rankText,
+                  styles.cornerAlignEnd,
+                  {
+                    fontSize: cornerRankSize,
+                    lineHeight: Math.round(cornerRankSize * 1.12),
+                    color: cornerColor,
+                  },
+                ]}
+              >
+                {rankStr}
+              </Text>
+              <Text
+                {...baseTextProps}
+                numberOfLines={1}
+                style={[
+                  styles.suitTextSmall,
+                  styles.cornerAlignEnd,
+                  {
+                    fontSize: cornerSuitSize,
+                    lineHeight: Math.round(cornerSuitSize * 1.05),
+                    color: cornerColor,
+                  },
+                ]}
+              >
+                {symbol}
+              </Text>
             </View>
           </View>
         ) : (
-          <View style={[styles.card, styles.cardBack, selected && styles.selectedCard]}>
+          <View style={[styles.cardFace, styles.cardBack, selected && styles.selectedCard, { width, height }]}>
             <CardBack width={width} height={height} />
           </View>
         )}
@@ -122,20 +207,19 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: "visible",
   },
-  card: {
+  cardFace: {
     borderRadius: 8,
     borderWidth: 2,
     borderColor: "#d4d4d8",
     backgroundColor: "#ffffff",
-    padding: 5,
-    justifyContent: "space-between",
+    overflow: "hidden",
+    position: "relative",
     shadowColor: "#000000",
     shadowOpacity: 0.24,
     shadowRadius: 5,
     shadowOffset: { width: 0, height: 2 },
   },
   cardBack: {
-    overflow: "hidden",
     padding: 0,
   },
   playableCard: {
@@ -160,24 +244,38 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 12,
   },
-  cornerText: {
-    fontSize: 9,
-    fontWeight: "800",
-    lineHeight: 11,
+  cornerTL: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    zIndex: 2,
   },
-  centerSymbol: {
+  centerWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1,
+  },
+  cornerBR: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
+    zIndex: 2,
+    alignItems: "flex-end",
+  },
+  cornerAlignEnd: {
+    textAlign: "right",
+    alignSelf: "stretch",
+  },
+  rankText: {
+    fontWeight: "800",
+  },
+  suitTextSmall: {
+    fontWeight: "600",
+    marginTop: 1,
+  },
+  suitTextCenter: {
+    fontWeight: "700",
     textAlign: "center",
-    fontSize: 22,
-    fontWeight: "800",
-  },
-  bottomCorner: {
-    alignSelf: "flex-end",
-    transform: [{ rotate: "180deg" }],
-  },
-  red: {
-    color: "#dc2626",
-  },
-  black: {
-    color: "#111827",
   },
 });

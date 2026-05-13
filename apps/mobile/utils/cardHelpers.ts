@@ -26,10 +26,10 @@ const LOW_RANKS = new Set<Rank>([
 ]);
 
 const SUIT_SYMBOL_MAP: Record<Suit, string> = {
-  [Suit.CLUBS]: "♣",
-  [Suit.DIAMONDS]: "♦",
-  [Suit.HEARTS]: "♥",
-  [Suit.SPADES]: "♠",
+  [Suit.CLUBS]: "\u2663",
+  [Suit.DIAMONDS]: "\u2666",
+  [Suit.HEARTS]: "\u2665",
+  [Suit.SPADES]: "\u2660",
 };
 
 const SUIT_CODE_MAP: Record<Suit, string> = {

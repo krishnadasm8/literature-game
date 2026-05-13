@@ -78,6 +78,15 @@ export default function HomeScreen(): JSX.Element {
           </Pressable>
         </View>
 
+        <View style={styles.secondaryActions}>
+          <Pressable style={styles.rulesButton} onPress={() => router.push("/rules")}>
+            <Text style={styles.rulesButtonText}>GAME RULES</Text>
+          </Pressable>
+          <Pressable style={styles.rulesButton} onPress={() => router.push("/demo-gameplay")}>
+            <Text style={styles.rulesButtonText}>DEMO GAMEPLAY</Text>
+          </Pressable>
+        </View>
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Recent Games</Text>
           {recentGames.length === 0 ? (
@@ -142,6 +151,17 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   joinButtonText: { color: COLORS.primary, fontWeight: "800", fontSize: 16 },
+  secondaryActions: { flexDirection: "row", gap: 10 },
+  rulesButton: {
+    flex: 1,
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  rulesButtonText: { color: COLORS.text, fontWeight: "800", fontSize: 13, letterSpacing: 0.5 },
   section: {
     backgroundColor: COLORS.surface,
     borderRadius: 12,
