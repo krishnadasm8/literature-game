@@ -226,13 +226,44 @@ router.post("/:code/leave", authMiddleware, async (req: AuthenticatedRequest, re
       return;
     }
 
+    const wasHost = room.hostId === userId;
+
     await prisma.roomPlayer.delete({ where: { id: roomPlayer.id } });
     const updatedRoom = await getRoomByCode(roomCode);
     if (!updatedRoom) {
+      emitToRoomNamespace(roomCode, "room:player_left", { roomCode, playerId: userId });
+      res.status(200).json({ room: null });
+      return;
+    }
+
+    if (updatedRoom.players.length === 0) {
+      await prisma.room.delete({ where: { id: updatedRoom.id } });
+      emitToRoomNamespace(roomCode, "room:player_left", { roomCode, playerId: userId });
+      res.status(200).json({ room: null });
+      return;
+    }
+
+    if (wasHost) {
+      const sorted = [...updatedRoom.players].sort(
+        (a, b) => a.joinedAt.getTime() - b.joinedAt.getTime(),
+      );
+      const nextHostUserId = sorted[0]?.userId;
+      if (nextHostUserId) {
+        await prisma.room.update({
+          where: { id: room.id },
+          data: { hostId: nextHostUserId },
+        });
+      }
+    }
+
+    const finalRoom = await getRoomByCode(roomCode);
+    if (!finalRoom) {
       res.status(500).json({ error: "Failed to refresh room." });
       return;
     }
-    res.status(200).json({ room: toPublicRoom(updatedRoom) });
+
+    emitToRoomNamespace(roomCode, "room:player_left", { roomCode, playerId: userId });
+    res.status(200).json({ room: toPublicRoom(finalRoom) });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : "Failed to leave room." });
   }

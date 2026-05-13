@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
+import { AxiosError } from "axios";
 import {
   Alert,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -15,7 +17,7 @@ import { StatusBar } from "expo-status-bar";
 
 import { Team, type GameState } from "@shared/src";
 
-import { getRoom, joinRoom, setReady, startGame, switchTeam } from "../../services/roomService";
+import { getRoom, joinRoom, leaveRoom, setReady, startGame, switchTeam } from "../../services/roomService";
 import { socketService } from "../../services/socket";
 import { useAuthStore } from "../../store/authStore";
 import { useGameStore } from "../../store/gameStore";
@@ -43,6 +45,7 @@ export default function RoomCodeScreen(): JSX.Element {
   const room = useRoomStore((state) => state.room);
   const players = useRoomStore((state) => state.players);
   const setRoom = useRoomStore((state) => state.setRoom);
+  const clearRoom = useRoomStore((state) => state.clearRoom);
   const setGameState = useGameStore((state) => state.setGameState);
   const setMyHand = useGameStore((state) => state.setMyHand);
   const [loading, setLoading] = useState(true);
@@ -90,8 +93,15 @@ export default function RoomCodeScreen(): JSX.Element {
       if (!normalizedCode) {
         return;
       }
-      const refreshed = await getRoom(normalizedCode);
-      setRoom(refreshed.room, refreshed.room.players);
+      try {
+        const refreshed = await getRoom(normalizedCode);
+        setRoom(refreshed.room, refreshed.room.players);
+      } catch (error) {
+        if (error instanceof AxiosError && error.response?.status === 404) {
+          useRoomStore.getState().clearRoom();
+          router.replace("/(tabs)/lobby");
+        }
+      }
     };
 
     const init = async (): Promise<void> => {
@@ -211,6 +221,34 @@ export default function RoomCodeScreen(): JSX.Element {
     });
   };
 
+  const onLeaveRoom = (): void => {
+    const run = (): void => {
+      void (async () => {
+        setUpdating(true);
+        try {
+          await leaveRoom(normalizedCode);
+        } catch {
+          // Still leave UI if offline or already removed.
+        }
+        socketService.disconnect("/room");
+        clearRoom();
+        router.replace("/(tabs)/lobby");
+      })();
+    };
+
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && window.confirm("Leave this room and return to the lobby?")) {
+        run();
+      }
+      return;
+    }
+
+    Alert.alert("Leave room?", "You'll return to the lobby.", [
+      { text: "Stay", style: "cancel" },
+      { text: "Leave", style: "destructive", onPress: run },
+    ]);
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -297,6 +335,14 @@ export default function RoomCodeScreen(): JSX.Element {
               {!canStart ? <Text style={styles.startHint}>{startDisabledReason}</Text> : null}
             </View>
           )}
+
+          <Pressable
+            disabled={updating}
+            onPress={onLeaveRoom}
+            style={[styles.leaveRoomButton, updating && styles.disabledButton]}
+          >
+            <Text style={styles.leaveRoomText}>Leave room</Text>
+          </Pressable>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -589,5 +635,19 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.55,
+  },
+  leaveRoomButton: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#475569",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    backgroundColor: "transparent",
+  },
+  leaveRoomText: {
+    color: "#94a3b8",
+    fontWeight: "700",
+    fontSize: 14,
   },
 });

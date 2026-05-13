@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Modal,
   Pressable,
   SafeAreaView,
@@ -56,6 +57,49 @@ export default function LobbyScreen(): JSX.Element {
   const [createdRoomCode, setCreatedRoomCode] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [activeTab, setActiveTab] = useState<"CREATE" | "JOIN">(tab?.toLowerCase() === "join" ? "JOIN" : "CREATE");
+  const [codeCopied, setCodeCopied] = useState(false);
+
+  const createBtnScale = useRef(new Animated.Value(1)).current;
+  const copyBtnScale = useRef(new Animated.Value(1)).current;
+  const modalCardScale = useRef(new Animated.Value(1)).current;
+
+  const springPressIn = (v: Animated.Value): void => {
+    Animated.spring(v, {
+      toValue: 0.94,
+      useNativeDriver: true,
+      speed: 40,
+      bounciness: 0,
+    }).start();
+  };
+
+  const springPressOut = (v: Animated.Value): void => {
+    Animated.spring(v, {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 4,
+      tension: 220,
+    }).start();
+  };
+
+  const pulseSuccess = (v: Animated.Value): void => {
+    Animated.sequence([
+      Animated.spring(v, { toValue: 1.06, useNativeDriver: true, friction: 5, tension: 400 }),
+      Animated.spring(v, { toValue: 1, useNativeDriver: true, friction: 6, tension: 200 }),
+    ]).start();
+  };
+
+  useEffect(() => {
+    if (!showCreateModal) {
+      return;
+    }
+    modalCardScale.setValue(0.88);
+    Animated.spring(modalCardScale, {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 7,
+      tension: 120,
+    }).start();
+  }, [showCreateModal, modalCardScale]);
 
   const canJoin = useMemo(() => roomCode.length === 6, [roomCode.length]);
 
@@ -159,13 +203,21 @@ export default function LobbyScreen(): JSX.Element {
             <Pressable
               style={[styles.primaryButton, loadingCreate && styles.disabled]}
               disabled={loadingCreate}
+              onPressIn={() => {
+                if (!loadingCreate) {
+                  springPressIn(createBtnScale);
+                }
+              }}
+              onPressOut={() => springPressOut(createBtnScale)}
               onPress={() => void onCreate()}
             >
-              {loadingCreate ? (
-                <ActivityIndicator color="#111827" />
-              ) : (
-                <Text style={styles.primaryButtonText}>Create Room</Text>
-              )}
+              <Animated.View style={[styles.buttonInner, { transform: [{ scale: createBtnScale }] }]}>
+                {loadingCreate ? (
+                  <ActivityIndicator color="#111827" />
+                ) : (
+                  <Text style={styles.primaryButtonText}>Create Room</Text>
+                )}
+              </Animated.View>
             </Pressable>
           </View>
         ) : (
@@ -199,13 +251,17 @@ export default function LobbyScreen(): JSX.Element {
         visible={showCreateModal}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowCreateModal(false)}
+        onRequestClose={() => {
+          setCodeCopied(false);
+          setShowCreateModal(false);
+        }}
       >
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
+          <Animated.View style={[styles.modalCard, { transform: [{ scale: modalCardScale }] }]}>
             <Pressable
               style={styles.modalCloseButton}
               onPress={() => {
+                setCodeCopied(false);
                 setShowCreateModal(false);
               }}
             >
@@ -214,15 +270,26 @@ export default function LobbyScreen(): JSX.Element {
             <Text style={styles.modalTitle}>Room Created</Text>
             <Text style={styles.modalCode}>{createdRoomCode}</Text>
             <Pressable
-              style={styles.secondaryButton}
+              style={[styles.secondaryButton, codeCopied && styles.secondaryButtonCopied]}
+              onPressIn={() => springPressIn(copyBtnScale)}
+              onPressOut={() => springPressOut(copyBtnScale)}
               onPress={() => {
                 if (!createdRoomCode) {
                   return;
                 }
-                void Clipboard.setStringAsync(createdRoomCode);
+                void (async () => {
+                  await Clipboard.setStringAsync(createdRoomCode);
+                  pulseSuccess(copyBtnScale);
+                  setCodeCopied(true);
+                  setTimeout(() => setCodeCopied(false), 1600);
+                })();
               }}
             >
-              <Text style={styles.secondaryButtonText}>Copy Code</Text>
+              <Animated.View style={[styles.buttonInner, { transform: [{ scale: copyBtnScale }] }]}>
+                <Text style={[styles.secondaryButtonText, codeCopied && styles.secondaryButtonTextCopied]}>
+                  {codeCopied ? "Copied!" : "Copy Code"}
+                </Text>
+              </Animated.View>
             </Pressable>
             <Pressable
               style={styles.primaryButton}
@@ -231,12 +298,13 @@ export default function LobbyScreen(): JSX.Element {
                   return;
                 }
                 setShowCreateModal(false);
+                setCodeCopied(false);
                 router.push(`/room/${createdRoomCode}`);
               }}
             >
               <Text style={styles.primaryButtonText}>Enter Room</Text>
             </Pressable>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
     </SafeAreaView>
@@ -346,6 +414,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     minHeight: 48,
   },
+  buttonInner: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+  },
   primaryButtonText: {
     color: "#111827",
     fontWeight: "800",
@@ -361,6 +434,13 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: "#f59e0b",
     fontWeight: "700",
+  },
+  secondaryButtonCopied: {
+    borderColor: "#34d399",
+    backgroundColor: "rgba(52, 211, 153, 0.12)",
+  },
+  secondaryButtonTextCopied: {
+    color: "#34d399",
   },
   disabled: {
     opacity: 0.5,

@@ -8,6 +8,10 @@ interface RoomResponse {
   roomCode?: string;
 }
 
+export type LeaveRoomResponse = {
+  room: (RoomDetails & { players: RoomMember[] }) | null;
+};
+
 export const createRoom = async (maxPlayers: 4 | 6 | 8): Promise<RoomResponse> => {
   const response = await api.post<RoomResponse>("/rooms", { maxPlayers });
   return response.data;
@@ -23,8 +27,8 @@ export const joinRoom = async (roomCode: string): Promise<RoomResponse> => {
   return response.data;
 };
 
-export const leaveRoom = async (roomCode: string): Promise<RoomResponse> => {
-  const response = await api.post<RoomResponse>(`/rooms/${roomCode}/leave`);
+export const leaveRoom = async (roomCode: string): Promise<LeaveRoomResponse> => {
+  const response = await api.post<LeaveRoomResponse>(`/rooms/${roomCode}/leave`);
   return response.data;
 };
 
