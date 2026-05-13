@@ -114,7 +114,7 @@ router.patch("/me", authMiddleware, async (req: AuthenticatedRequest, res) => {
         data.avatarPreset = ap;
         data.avatarUrl = presetAvatarUrl(ap);
       } else {
-        res.status(400).json({ error: "avatarPreset must be an integer 1–8, or null to use Google photo on next sign-in." });
+        res.status(400).json({ error: "avatarPreset must be 1–8, or null for no picture (initials only)." });
         return;
       }
     }

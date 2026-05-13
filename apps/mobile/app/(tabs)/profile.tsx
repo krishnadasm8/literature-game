@@ -25,18 +25,13 @@ const getInitials = (name: string): string =>
     .slice(0, 2)
     .join("");
 
-const ACHIEVEMENTS = [
-  { label: "First Win", unlocked: true },
-  { label: "10 Games", unlocked: false },
-  { label: "Perfect Declare", unlocked: false },
-];
-
 export default function ProfileScreen(): JSX.Element {
   const { user, signOut, updateProfile } = useAuth();
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(formatDisplayName(user?.displayName));
   const [nameError, setNameError] = useState<string | null>(null);
   const [savingPreset, setSavingPreset] = useState<number | null>(null);
+  const [savingNoPicture, setSavingNoPicture] = useState(false);
 
   useEffect(() => {
     setNameDraft(formatDisplayName(user?.displayName));
@@ -54,6 +49,8 @@ export default function ProfileScreen(): JSX.Element {
   );
 
   const avatarUri = user?.avatarUrl?.trim() ? user.avatarUrl.trim() : null;
+  const initialsOnly = !avatarUri;
+  const avatarBusy = savingPreset !== null || savingNoPicture;
 
   const onSignOut = (): void => {
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
@@ -95,7 +92,10 @@ export default function ProfileScreen(): JSX.Element {
   };
 
   const onPickPreset = async (preset: number): Promise<void> => {
-    if (preset === user?.avatarPreset || savingPreset !== null) {
+    if (preset === user?.avatarPreset && avatarUri) {
+      return;
+    }
+    if (avatarBusy) {
       return;
     }
     setSavingPreset(preset);
@@ -105,6 +105,23 @@ export default function ProfileScreen(): JSX.Element {
       Alert.alert("Avatar", err instanceof Error ? err.message : "Could not update avatar.");
     } finally {
       setSavingPreset(null);
+    }
+  };
+
+  const onUseNoPicture = async (): Promise<void> => {
+    if (initialsOnly && user?.avatarPreset == null) {
+      return;
+    }
+    if (avatarBusy) {
+      return;
+    }
+    setSavingNoPicture(true);
+    try {
+      await updateProfile({ avatarPreset: null });
+    } catch (err) {
+      Alert.alert("Avatar", err instanceof Error ? err.message : "Could not update profile.");
+    } finally {
+      setSavingNoPicture(false);
     }
   };
 
@@ -146,8 +163,8 @@ export default function ProfileScreen(): JSX.Element {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Cartoon avatar</Text>
-          <Text style={styles.sectionHint}>Pick one of eight — saved to your profile.</Text>
+          <Text style={styles.sectionTitle}>Profile picture</Text>
+          <Text style={styles.sectionHint}>Optional — cartoon avatar, or initials only in the lobby and game.</Text>
           <View style={styles.presetRows}>
             {[0, 4].map((rowStart) => (
               <View key={rowStart} style={styles.presetRow}>
@@ -160,13 +177,13 @@ export default function ProfileScreen(): JSX.Element {
                       key={preset}
                       style={[styles.presetCell, selected && styles.presetCellSelected]}
                       onPress={() => void onPickPreset(preset)}
-                      disabled={busy || savingPreset !== null}
+                      disabled={busy || avatarBusy}
                     >
-                  <Image
-                    source={{ uri: presetAvatarUrl(preset) }}
-                    style={styles.presetImage}
-                    resizeMode="cover"
-                  />
+                      <Image
+                        source={{ uri: presetAvatarUrl(preset) }}
+                        style={styles.presetImage}
+                        resizeMode="cover"
+                      />
                       {busy ? (
                         <View style={styles.presetBusy}>
                           <ActivityIndicator color="#f59e0b" />
@@ -178,6 +195,19 @@ export default function ProfileScreen(): JSX.Element {
               </View>
             ))}
           </View>
+
+          <Pressable
+            style={[styles.noPictureButton, initialsOnly && styles.noPictureButtonSelected]}
+            onPress={() => void onUseNoPicture()}
+            disabled={avatarBusy}
+          >
+            {savingNoPicture ? (
+              <ActivityIndicator color="#f1f5f9" />
+            ) : (
+              <Text style={styles.noPictureButtonText}>No picture — use my initials</Text>
+            )}
+          </Pressable>
+          <Text style={styles.noPictureHint}>No image is sent to other players; they see your initials instead.</Text>
         </View>
 
         <View style={styles.statsGrid}>
@@ -189,16 +219,14 @@ export default function ProfileScreen(): JSX.Element {
           ))}
         </View>
 
+        {/* Achievements UI hidden for now — restore when implementing:
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Achievements</Text>
           <View style={styles.badgeWrap}>
-            {ACHIEVEMENTS.map((item) => (
-              <View key={item.label} style={[styles.badge, !item.unlocked && styles.badgeLocked]}>
-                <Text style={[styles.badgeText, !item.unlocked && styles.badgeTextLocked]}>{item.label}</Text>
-              </View>
-            ))}
+            ...
           </View>
         </View>
+        */}
 
         {/* Coins UI hidden for now — restore when implementing:
         <View style={styles.section}>
@@ -302,6 +330,32 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(15,23,42,0.55)",
+  },
+  noPictureButton: {
+    marginTop: 6,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "#334155",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0f172a",
+  },
+  noPictureButtonSelected: {
+    borderColor: "#f59e0b",
+  },
+  noPictureButtonText: {
+    color: "#f1f5f9",
+    fontWeight: "800",
+    fontSize: 14,
+    textAlign: "center",
+  },
+  noPictureHint: {
+    color: "#64748b",
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 2,
   },
   statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   statCard: {
