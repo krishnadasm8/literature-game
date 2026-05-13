@@ -43,6 +43,7 @@ export interface GoogleSignInResult {
   userId: string;
   displayName: string;
   avatarUrl: string;
+  avatarPreset: number | null;
   gamesPlayed: number;
   gamesWon: number;
   winRate: number;
@@ -60,6 +61,7 @@ interface BackendGoogleAuthResponse {
     id?: string;
     displayName?: string;
     avatarUrl?: string | null;
+    avatarPreset?: number | null;
     gamesPlayed?: number | null;
     gamesWon?: number | null;
     winRate?: number | null;
@@ -123,6 +125,7 @@ export const googleSignIn = async (
     userId,
     displayName: data.user?.displayName ?? data.displayName ?? "Player",
     avatarUrl: data.user?.avatarUrl ?? data.avatarUrl ?? "",
+    avatarPreset: typeof data.user?.avatarPreset === "number" ? data.user.avatarPreset : null,
     gamesPlayed: data.user?.gamesPlayed ?? 0,
     gamesWon: data.user?.gamesWon ?? 0,
     winRate: data.user?.winRate ?? 0,

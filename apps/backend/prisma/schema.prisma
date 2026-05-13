@@ -13,6 +13,8 @@ model User {
   googleId      String        @unique
   displayName   String
   avatarUrl     String?
+  // 1–8 = cartoon preset; null = sync Google profile photo on next sign-in when not preserving custom.
+  avatarPreset  Int?
   lastActiveAt  DateTime      @default(now())
   gamesPlayed   Int           @default(0)
   gamesWon      Int           @default(0)

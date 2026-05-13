@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 
 import { googleSignIn, logout } from "../services/authService";
+import { patchCurrentUser } from "../services/userService";
 import { useAuthStore, type AuthUser } from "../store/authStore";
 import { deleteToken, saveToken } from "../utils/storage";
 
@@ -17,6 +18,7 @@ interface UseAuthResult {
     isAuthCode?: boolean,
   ) => Promise<void>;
   signOut: () => Promise<void>;
+  updateProfile: (body: { displayName?: string; avatarPreset?: number | null }) => Promise<void>;
 }
 
 export const useAuth = (): UseAuthResult => {
@@ -25,6 +27,7 @@ export const useAuth = (): UseAuthResult => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const setUser = useAuthStore((state) => state.setUser);
   const clearAuth = useAuthStore((state) => state.clearAuth);
+  const updateUserProfile = useAuthStore((state) => state.updateUserProfile);
 
   const signInWithGoogle = useCallback(
     async (
@@ -38,6 +41,7 @@ export const useAuth = (): UseAuthResult => {
           id: result.userId,
           displayName: result.displayName,
           avatarUrl: result.avatarUrl,
+          avatarPreset: result.avatarPreset ?? null,
           gamesPlayed: result.gamesPlayed ?? 0,
           gamesWon: result.gamesWon ?? 0,
           winRate: result.winRate ?? 0,
@@ -61,11 +65,26 @@ export const useAuth = (): UseAuthResult => {
     }
   }, [clearAuth]);
 
+  const updateProfile = useCallback(
+    async (body: { displayName?: string; avatarPreset?: number | null }) => {
+      const u = await patchCurrentUser(body);
+      updateUserProfile({
+        displayName: u.displayName,
+        avatarUrl: u.avatarUrl ?? undefined,
+        avatarPreset: u.avatarPreset,
+        winRate: u.winRate,
+        coins: u.coins,
+      });
+    },
+    [updateUserProfile],
+  );
+
   return {
     user,
     accessToken,
     isAuthenticated,
     signInWithGoogle,
     signOut,
+    updateProfile,
   };
 };

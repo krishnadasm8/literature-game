@@ -5,6 +5,7 @@ import { PrismaClient } from "@prisma/client";
 
 import { COIN_STARTING } from "../config/coinEconomy";
 import { applyPassiveCoinRegen } from "../services/coinService";
+import { isValidAvatarPreset } from "../config/avatarPresets";
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -167,11 +168,18 @@ router.post("/google", async (req, res) => {
     const displayName = payload.name ?? email ?? "Literature Player";
     const avatarUrl = (payload.picture as string | undefined) ?? null;
 
+    const existing = await prisma.user.findUnique({
+      where: { googleId },
+      select: { avatarPreset: true },
+    });
+    const keepCustomAvatar =
+      existing != null && existing.avatarPreset != null && isValidAvatarPreset(existing.avatarPreset);
+
     const user = await prisma.user.upsert({
       where: { googleId },
       update: {
         displayName,
-        avatarUrl,
+        ...(keepCustomAvatar ? {} : { avatarUrl }),
       },
       create: {
         googleId,

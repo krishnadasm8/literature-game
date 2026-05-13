@@ -1,9 +1,21 @@
-import React, { useMemo, useState } from "react";
-import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { StatusBar } from "expo-status-bar";
 
 import { useAuth } from "../../hooks/useAuth";
 import { formatDisplayName, isValidDisplayName } from "../../utils/nameHelpers";
+import { presetAvatarUrl } from "../../utils/avatarPresets";
 
 const getInitials = (name: string): string =>
   name
@@ -20,10 +32,15 @@ const ACHIEVEMENTS = [
 ];
 
 export default function ProfileScreen(): JSX.Element {
-  const { user, signOut } = useAuth();
+  const { user, signOut, updateProfile } = useAuth();
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(formatDisplayName(user?.displayName));
   const [nameError, setNameError] = useState<string | null>(null);
+  const [savingPreset, setSavingPreset] = useState<number | null>(null);
+
+  useEffect(() => {
+    setNameDraft(formatDisplayName(user?.displayName));
+  }, [user?.displayName]);
 
   const stats = useMemo(
     () => [
@@ -35,6 +52,8 @@ export default function ProfileScreen(): JSX.Element {
     ],
     [user?.gamesPlayed, user?.gamesWon, user?.winRate /*, user?.coins */],
   );
+
+  const avatarUri = user?.avatarUrl?.trim() ? user.avatarUrl.trim() : null;
 
   const onSignOut = (): void => {
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
@@ -59,8 +78,34 @@ export default function ProfileScreen(): JSX.Element {
     if (!isValidDisplayName(nameDraft)) {
       setNameError("Use 1-15 letters/numbers.");
       setNameDraft(formatDisplayName(nameDraft));
+      setEditingName(false);
+      return;
     }
     setEditingName(false);
+    const next = formatDisplayName(nameDraft);
+    if (next !== formatDisplayName(user?.displayName)) {
+      void (async () => {
+        try {
+          await updateProfile({ displayName: next });
+        } catch (err) {
+          setNameError(err instanceof Error ? err.message : "Could not save name.");
+        }
+      })();
+    }
+  };
+
+  const onPickPreset = async (preset: number): Promise<void> => {
+    if (preset === user?.avatarPreset || savingPreset !== null) {
+      return;
+    }
+    setSavingPreset(preset);
+    try {
+      await updateProfile({ avatarPreset: preset });
+    } catch (err) {
+      Alert.alert("Avatar", err instanceof Error ? err.message : "Could not update avatar.");
+    } finally {
+      setSavingPreset(null);
+    }
   };
 
   return (
@@ -69,7 +114,11 @@ export default function ProfileScreen(): JSX.Element {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.topCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{getInitials(user?.displayName ?? "Player")}</Text>
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={styles.avatarImage} resizeMode="cover" />
+            ) : (
+              <Text style={styles.avatarText}>{getInitials(user?.displayName ?? "Player")}</Text>
+            )}
           </View>
           {editingName ? (
             <TextInput
@@ -94,6 +143,41 @@ export default function ProfileScreen(): JSX.Element {
           <Pressable style={styles.editButton} onPress={() => setEditingName((v) => !v)}>
             <Text style={styles.editButtonText}>Edit Name</Text>
           </Pressable>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Cartoon avatar</Text>
+          <Text style={styles.sectionHint}>Pick one of eight — saved to your profile.</Text>
+          <View style={styles.presetRows}>
+            {[0, 4].map((rowStart) => (
+              <View key={rowStart} style={styles.presetRow}>
+                {Array.from({ length: 4 }, (_, j) => {
+                  const preset = rowStart + j + 1;
+                  const selected = user?.avatarPreset === preset;
+                  const busy = savingPreset === preset;
+                  return (
+                    <Pressable
+                      key={preset}
+                      style={[styles.presetCell, selected && styles.presetCellSelected]}
+                      onPress={() => void onPickPreset(preset)}
+                      disabled={busy || savingPreset !== null}
+                    >
+                  <Image
+                    source={{ uri: presetAvatarUrl(preset) }}
+                    style={styles.presetImage}
+                    resizeMode="cover"
+                  />
+                      {busy ? (
+                        <View style={styles.presetBusy}>
+                          <ActivityIndicator color="#f59e0b" />
+                        </View>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
         </View>
 
         <View style={styles.statsGrid}>
@@ -137,6 +221,8 @@ export default function ProfileScreen(): JSX.Element {
   );
 }
 
+const PRESET_GAP = 10;
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#0f172a" },
   content: { padding: 16, gap: 14, paddingBottom: 24 },
@@ -158,7 +244,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
+  avatarImage: { width: "100%", height: "100%" },
   avatarText: { color: "#f1f5f9", fontSize: 26, fontWeight: "900" },
   nameRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   name: { color: "#f1f5f9", fontSize: 22, fontWeight: "800" },
@@ -184,6 +272,37 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   editButtonText: { color: "#111827", fontWeight: "800" },
+  sectionHint: { color: "#64748b", fontSize: 12, marginTop: -4 },
+  presetRows: {
+    gap: PRESET_GAP,
+    marginTop: 4,
+  },
+  presetRow: {
+    flexDirection: "row",
+    gap: PRESET_GAP,
+  },
+  presetCell: {
+    flex: 1,
+    aspectRatio: 1,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "transparent",
+    overflow: "hidden",
+    backgroundColor: "#0f172a",
+  },
+  presetCellSelected: {
+    borderColor: "#f59e0b",
+  },
+  presetImage: {
+    width: "100%",
+    height: "100%",
+  },
+  presetBusy: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(15,23,42,0.55)",
+  },
   statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   statCard: {
     width: "48%",
