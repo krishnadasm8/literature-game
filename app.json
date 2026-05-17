@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "Literature",
+    "slug": "literature-card-game",
+    "version": "1.0.0",
+    "android": {
+      "package": "com.literaturecardgame"
+    },
+    "extra": {
+      "google": {
+        "androidClientId": "98676129738-qrppnmd6g2letll4gq9and7ca0gdi1cg.apps.googleusercontent.com",
+        "webClientId": "98676129738-cti34d5p863mcdjrnomnvquhcet7fate.apps.googleusercontent.com",
+        "iosUrlScheme": "com.googleusercontent.apps.98676129738-qrppnmd6g2letll4gq9and7ca0gdi1cg",
+        "androidSha1": "B4:98:E3:74:0C:81:56:0B:33:0B:8F:36:45:2E:09:4C:98:9E:33:DB"
+      }
+    }
+  }
+}

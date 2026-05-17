@@ -169,8 +169,10 @@ export default function ProfileScreen(): JSX.Element {
         <View style={styles.section}>
           <View style={styles.settingRow}>
             <View style={styles.settingTextCol}>
-              <Text style={styles.sectionTitle}>Sound effects</Text>
-              <Text style={styles.sectionHint}>Mute all game and lobby sounds.</Text>
+              <Text style={styles.sectionTitle}>Sound and haptics</Text>
+              <Text style={styles.sectionHint}>
+                Uses sound when your install includes audio; otherwise vibration. Turn off the switch to mute both.
+              </Text>
             </View>
             <Switch
               value={soundsMuted}

@@ -10,15 +10,20 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:mobile": "npm --workspace apps/mobile run start",
+    "start": "npm --prefix apps/mobile run start -- --host lan",
+    "dev:mobile": "npm --prefix apps/mobile run start -- --host lan",
+    "android": "npm --prefix apps/mobile run android",
     "dev:backend": "npm --workspace apps/backend run dev",
     "build:shared": "npm --workspace packages/shared run build",
     "build:backend": "npm --workspace @literature/backend run build",
     "start:backend": "npm --workspace @literature/backend run start",
     "db:migrate": "npm --workspace @literature/backend run migrate:deploy",
-    "db:baseline": "npm --workspace @literature/backend run migrate:baseline-existing-db"
+    "db:baseline": "npm --workspace @literature/backend run migrate:baseline-existing-db",
+    "ios": "expo run:ios"
   },
-  "devDependencies": {
-    "expo": "51.0.39"
+  "dependencies": {
+    "expo": "~51.0.28",
+    "react": "18.2.0",
+    "react-native": "0.74.5"
   }
 }
